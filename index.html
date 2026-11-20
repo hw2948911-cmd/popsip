@@ -232,7 +232,7 @@ const CH_NAME=(QS.get('n')||'').slice(0,12);       // 好友名字
 const REF=(QS.get('r')||'').slice(0,12);           // 邀请人
 const INAPP=/Zalo|FBAN|FBAV|FB_IAB|Messenger|Instagram|MicroMessenger|Line\/|Twitter/i.test(navigator.userAgent);
 let W=0,H=0,cupX=0,cupY=0;
-const cupW=84,cupH=104;
+const cupW=68,cupH=86;
 
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
 let hidden=false,misses=0,bannerT=0;
@@ -260,7 +260,7 @@ function resize(){
 
 function reset(){
   score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;
-  cupX=W/2;cupY=H-cupH-52;
+  cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupTarget=cupX;
   // 开局先铺 4 颗，避免前几秒空屏
   for(let i=0;i<4;i++){
     const kind=kindAt(spawnCount++,0);
@@ -298,6 +298,11 @@ function update(dt){
   level=Math.min(16,1+Math.floor(score/10));
   let gap=Math.max(0.26,1.10-level*0.05-Math.max(0,time-6)*0.011);
   if(hidden)gap=Math.max(0.13,gap*0.62);
+  // 杯子限速，防止左右刷屏作弊
+  const cupMaxV=1500;
+  const dxc=cupTarget-cupX;
+  const step=cupMaxV*dt;
+  cupX += Math.abs(dxc)<=step ? dxc : (dxc>0?step:-step);
   spawnT-=dt;
   if(spawnT<=0){
     if(spawnPearl()){
@@ -751,7 +756,8 @@ function gameOver(){
 }
 
 let dragging=false;
-function moveTo(x){cupX=Math.max(cupW/2+6,Math.min(W-cupW/2-6,x));}
+let cupTarget=0;
+function moveTo(x){cupTarget=Math.max(cupW/2+6,Math.min(W-cupW/2-6,x));}
 cv.addEventListener('pointerdown',e=>{dragging=true;moveTo(e.clientX);});
 cv.addEventListener('pointermove',e=>{if(dragging)moveTo(e.clientX);});
 cv.addEventListener('pointerup',()=>dragging=false);
