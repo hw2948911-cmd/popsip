@@ -26,12 +26,16 @@ background:
 .hide{display:none!important}
 .acts{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
 .btn.ghost{background:transparent;color:#fff;border:2px solid rgba(255,255,255,.75)}
-.acts .btn{min-width:132px}
+.acts .btn{min-width:140px}
+.zlink{color:#8FD0FF;font-size:14px;font-weight:700;text-decoration:none;
+  border-bottom:1px dashed rgba(143,208,255,.55);padding-bottom:2px}
 .btn.zalo{background:#0068FF;color:#fff}
 .challenge{max-width:320px;margin-top:6px;padding:10px 16px;border-radius:14px;
   background:rgba(255,255,255,.16);border:2px solid rgba(255,233,168,.85);
   font-size:14px;font-weight:700;color:#FFE9A8;line-height:1.5}
 .invite{font-size:12px;font-weight:600;color:#fff;opacity:.8}
+.reward{max-width:330px;padding:9px 16px;border-radius:14px;background:rgba(255,233,168,.18);
+  border:2px solid rgba(255,233,168,.9);color:#FFE9A8;font-size:14px;font-weight:800;line-height:1.45}
 .promo{margin-top:4px;font-size:14px;font-weight:700;color:#FFE9A8;line-height:1.65;letter-spacing:.3px}
 .logo{font-family:Georgia,"Times New Roman",serif;font-style:italic;
 font-weight:700;letter-spacing:-2px}
@@ -163,24 +167,24 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
   <div class="challenge hide" id="challenge"></div>
   <div class="promo">Thi đấu mỗi ngày · Điểm cao có quà<br>Game mới mỗi tuần</div>
   <div class="invite hide" id="invite"></div>
-  <small style="max-width:300px">60 giây · không rơi quả nào = mở MÀN ẨN (+60s)<br>
-  đen +1 · trắng +2 · bánh flan +5 · rơi mất −2<br>kẹo gậy +10 (từ 60s) · quà +20 (từ 90s)</small>
+  <small style="max-width:300px">60 giây · rơi ≤3 quả = MÀN ẨN x2 điểm (30 giây)<br>
+  đen +1 · trắng +2 · bánh flan +5 · rơi −2 (60s đầu)<br>kẹo gậy +10 (từ 60s) · quà +20 (từ 90s)</small>
 </div>
 
 <div id="over" class="panel hide">
   <canvas id="posterCv" style="display:none"></canvas>
   <img id="poster" alt="score">
+  <div class="reward hide" id="reward">🏆 Đạt MÀN ẨN + mua 1 ly<br>Tặng 1 xúc xích nướng · 1 lần/ngày</div>
   <div class="acts">
     <button class="btn" id="share">Chia sẻ</button>
-    <button class="btn ghost" id="save">Lưu ảnh</button>
+    <button class="btn ghost" id="again">Chơi lại</button>
   </div>
-  <button class="btn zalo" id="zalo">Vào nhóm Zalo nhận quà</button>
-  <button class="btn ghost" id="again">Chơi lại</button>
+  <a class="zlink" id="zalo">Vào nhóm Zalo nhận quà →</a>
   <small id="hint">Thi đấu mỗi ngày · Điểm cao có quà · Game mới mỗi tuần</small>
 </div>
 <script>
 const cv=document.getElementById('game'),ctx=cv.getContext('2d');
-const PINK='#E0006B',RED='#D62828',DUR=120;
+const PINK='#E0006B',RED='#D62828',DUR=90;
 const ZALO_URL='https://zalo.me/g/ozu0yzjsdpgmctvtnmwy';  // 官方 Zalo 群
 const SITE='https://hw2948911-cmd.github.io/popsip/';
 const QS=new URLSearchParams(location.search);
@@ -192,7 +196,8 @@ const cupW=84,cupH=104;
 
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
 let hidden=false,misses=0,bannerT=0;
-const BASE_TIME=60;   // 前 60 秒零失误才能进隐藏关卡
+const BASE_TIME=60;   // 前 60 秒的判定时间点
+const MISS_ALLOWED=3; // 前 60 秒最多能漏几个（改 0 就是零失误）
 // 固定掉落顺序：每个循环 10 个（6 黑 / 3 白 / 1 布丁），分数可比、比赛公平
 // 掉落顺序：20 个一循环，按时间解锁高分糖
 function kindAt(n,t){
@@ -220,8 +225,8 @@ function reset(){
   // 开局先铺 4 颗，避免前几秒空屏
   for(let i=0;i<4;i++){
     const kind=kindAt(spawnCount++,0);
-    pearls.push({x:40+((i*173)%(W-80)),y:140+i*160,r:kind==='pudding'?14:11,
-      kind:kind,pts:kind==='pudding'?5:(kind==='white'?2:1),v:150});
+    pearls.push({x:40+((i*173)%(W-80)),y:100+i*118,r:kind==='pudding'?14:11,
+      kind:kind,pts:kind==='pudding'?5:(kind==='white'?2:1),v:120});
   }
 }
 
@@ -236,7 +241,7 @@ function spawnPearl(){
   else if(kind==='candy'){pts=10;rad=15;}
   else if(kind==='pudding'){pts=5;rad=14;}
   else if(kind==='white'){pts=2;rad=11;}
-  const rush=Math.min(2.4,1+Math.max(0,time-12)*0.013);
+  const rush=Math.min(1.5,1+Math.max(0,time-12)*0.0085)*(hidden?1.12:1);
   let px=26+Math.random()*(W-52);
   for(let k=0;k<8;k++){
     const clash=pearls.some(p=>p.y<190&&Math.abs(p.x-px)<100);
@@ -244,7 +249,7 @@ function spawnPearl(){
     px=26+Math.random()*(W-52);
   }
   pearls.push({x:px,y:-24,r:rad,kind:kind,pts:pts,
-    v:Math.min(430,(92+level*13+Math.random()*36)*rush)});
+    v:Math.min(280,(80+level*9+Math.random()*26)*rush)});
   return true;
 }
 
@@ -253,12 +258,13 @@ function update(dt){
   time+=dt;
   if(bannerT>0)bannerT=Math.max(0,bannerT-dt);
   if(time>=BASE_TIME&&!hidden){
-    if(misses>0){gameOver();return;}
+    if(misses>MISS_ALLOWED){gameOver();return;}
     hidden=true;bannerT=2.8;
   }
   if(time>=DUR){gameOver();return;}
   level=Math.min(16,1+Math.floor(score/10));
-  const gap=Math.max(0.32,1.30-level*0.045-Math.max(0,time-8)*0.0075);
+  let gap=Math.max(0.38,1.30-level*0.045-Math.max(0,time-8)*0.006);
+  if(hidden)gap*=0.72;
   spawnT-=dt;
   if(spawnT<=0){
     if(spawnPearl()){
@@ -271,12 +277,13 @@ function update(dt){
   for(let i=pearls.length-1;i>=0;i--){
     const p=pearls[i];
     p.y+=p.v*dt;
-    const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/3;
-    if(inZone&&Math.abs(p.x-cupX)<cupW*0.5+p.r*0.4){
-      pearls.splice(i,1);score+=p.pts;shake=9;continue;
+    const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/2;
+    if(inZone&&Math.abs(p.x-cupX)<cupW*0.58+p.r*0.5){
+      pearls.splice(i,1);score+=p.pts*(hidden?2:1);shake=9;continue;
     }
     if(p.y-p.r>H){
-      pearls.splice(i,1);score=Math.max(0,score-2);shake=5;misses++;
+      pearls.splice(i,1);shake=5;
+      if(!hidden){score=Math.max(0,score-2);misses++;}   // 60 秒后漏接不扣分
     }
   }
   if(shake>0)shake=Math.max(0,shake-dt*45);
@@ -393,9 +400,16 @@ function draw(){
   ctx.font='800 20px -apple-system,Roboto,sans-serif';
   ctx.fillText('Điểm '+score,20,HUD_Y);
   ctx.textAlign='right';
-  ctx.fillText(Math.max(0,Math.ceil(DUR-time))+'s',W-20,HUD_Y);
+  ctx.fillText(Math.max(0,Math.ceil((hidden?DUR:BASE_TIME)-time))+'s',W-20,HUD_Y);
   ctx.textAlign='center';ctx.font='600 14px -apple-system,Roboto,sans-serif';
   ctx.globalAlpha=.85;ctx.fillText('Cấp '+level,W/2,HUD_Y);ctx.globalAlpha=1;ctx.restore();
+  if(true){
+    const left=Math.max(0,MISS_ALLOWED-misses);
+    ctx.save();ctx.textAlign='left';ctx.font='800 15px -apple-system,Roboto,sans-serif';
+    ctx.globalAlpha=.9;ctx.fillStyle=left>0?'#FFE9A8':'rgba(255,255,255,.55)';
+    ctx.fillText(hidden?'✨ x2 ĐIỂM':'❤ '+left+' lượt rơi',20,HUD_Y+26);
+    ctx.restore();
+  }
   if(bannerT>0){
     const a=Math.min(1,bannerT/0.5)*Math.min(1,(2.8-bannerT)/0.35);
     ctx.save();ctx.globalAlpha=Math.max(0,a);
@@ -403,10 +417,10 @@ function draw(){
     ctx.font='900 30px -apple-system,Roboto,sans-serif';
     ctx.shadowColor='rgba(90,0,40,.7)';ctx.shadowBlur=14;
     ctx.fillStyle='#FFE9A8';
-    ctx.fillText('✨ MÀN ẨN MỞ KHÓA ✨',W/2,H*0.30);
+    ctx.fillText('✨ MÀN ẨN · x2 ĐIỂM ✨',W/2,H*0.30);
     ctx.font='800 20px -apple-system,Roboto,sans-serif';
     ctx.fillStyle='#fff';
-    ctx.fillText('+60 giây · không rơi quả nào',W/2,H*0.30+34);
+    ctx.fillText('30 giây · ăn bao nhiêu nhân đôi',W/2,H*0.30+34);
     ctx.restore();
   }
   pearls.forEach(drawPearl);
@@ -481,7 +495,12 @@ function buildPoster(){
   g.fillText('Thi đấu mỗi ngày · Điểm cao có quà',360,896);
   g.font='600 18px -apple-system,Roboto,sans-serif';
   g.fillStyle='#fff';g.globalAlpha=.8;
-  g.fillText('Game mới mỗi tuần · Nhóm Zalo nhận quà',360,928);
+  if(hidden){
+    g.fillStyle='#FFE9A8';g.font='800 22px -apple-system,Roboto,sans-serif';
+    g.fillText('🏆 MÀN ẨN + 1 LY · TẶNG 1 XÚC XÍCH',360,928);
+  }else{
+    g.fillText('Game mới mỗi tuần · Nhóm Zalo nhận quà',360,928);
+  }
   g.globalAlpha=.75;
   g.fillText('PopSip · 280 Lạc Long Quân, Q.11',360,958);
   g.globalAlpha=1;
@@ -513,6 +532,8 @@ async function shareResult(){
 function gameOver(){
   state='over';
   buildPoster();
+  const rw=document.getElementById('reward');
+  if(rw){ if(hidden){ rw.classList.remove('hide'); } else { rw.classList.add('hide'); } }
   const hintEl=document.getElementById('hint');
   if(hintEl&&Number.isFinite(CH_SCORE)&&CH_SCORE>0){
     hintEl.textContent = score>CH_SCORE
@@ -552,10 +573,11 @@ window.addEventListener('keydown',e=>{
 document.getElementById('play').onclick=()=>{
   playerName=(document.getElementById('name').value||'').trim().slice(0,12)||'Người chơi';
   document.getElementById('start').classList.add('hide');
+  document.getElementById('reward').classList.add('hide');
   resize();reset();state='play';
 };
 document.getElementById('share').onclick=shareResult;
-document.getElementById('save').onclick=saveImage;
+
 document.getElementById('zalo').onclick=function(){ if(ZALO_URL){ location.href=ZALO_URL; } };
 if(!ZALO_URL){ document.getElementById('zalo').style.display='none'; }
 document.getElementById('again').onclick=function(){
