@@ -29,15 +29,20 @@ background:
 .acts .btn{min-width:140px}
 .inapp{max-width:320px;padding:8px 14px;border-radius:12px;background:rgba(0,0,0,.28);
   font-size:12px;font-weight:700;line-height:1.5;color:#FFE9A8;text-align:center}
+.shot{font-size:14px;font-weight:800;color:#FFE9A8;letter-spacing:.3px}
 .againlink{color:rgba(255,255,255,.82);font-size:15px;font-weight:700;text-decoration:none;
   border-bottom:1px dashed rgba(255,255,255,.45);padding-bottom:2px;margin-top:2px}
-.btn.zalo{background:#0068FF;color:#fff}
+.btn.zalo{background:#0068FF;color:#fff;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 .challenge{max-width:320px;margin-top:6px;padding:10px 16px;border-radius:14px;
   background:rgba(255,255,255,.16);border:2px solid rgba(255,233,168,.85);
   font-size:14px;font-weight:700;color:#FFE9A8;line-height:1.5}
 .invite{font-size:12px;font-weight:600;color:#fff;opacity:.8}
 .reward{max-width:330px;padding:9px 16px;border-radius:14px;background:rgba(255,233,168,.18);
   border:2px solid rgba(255,233,168,.9);color:#FFE9A8;font-size:14px;font-weight:800;line-height:1.45}
+.cbox{background:#fff;border-radius:22px;padding:16px;max-width:330px;width:100%;text-align:center}
+.cbox .ctitle{color:#B0005A;font-weight:900;font-size:15px;margin-bottom:8px}
+.cbox img{display:block;width:100%;border-radius:14px;margin:6px 0 14px;background:#f3f3f3}
+.cbox .btn{background:#D60066;color:#fff;width:100%}
 .modal{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
   background:rgba(30,0,16,.66);padding:24px}
 .mbox{background:#fff;color:#B0005A;border-radius:22px;padding:26px 22px;max-width:330px;width:100%;
@@ -45,9 +50,10 @@ background:
 .mtitle{font-size:19px;font-weight:900;margin-bottom:14px}
 .msteps{text-align:left;font-size:15px;line-height:1.9;margin:0 0 18px;padding-left:22px;color:#7A0044}
 .mbox .btn{background:#D60066;color:#fff;width:100%}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:34px;z-index:20;
-  max-width:86vw;padding:12px 20px;border-radius:999px;background:rgba(40,0,20,.92);color:#fff;
-  font-size:14px;font-weight:700;line-height:1.45;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:120px;z-index:40;
+  max-width:88vw;padding:14px 22px;border-radius:18px;background:rgba(30,0,18,.94);color:#fff;
+  font-size:15px;font-weight:800;line-height:1.5;text-align:center;box-shadow:0 12px 34px rgba(0,0,0,.45);
+  border:2px solid rgba(255,233,168,.7)}
 .dice{font-size:13px;font-weight:700;color:#FFE9A8;opacity:.9;margin-top:-4px;cursor:pointer}
 .promo{margin-top:4px;font-size:14px;font-weight:700;color:#FFE9A8;line-height:1.65;letter-spacing:.3px}
 .logo{font-family:Georgia,"Times New Roman",serif;font-style:italic;
@@ -186,6 +192,13 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
 </div>
 
 <div id="toast" class="toast hide"></div>
+<div id="card" class="modal hide">
+  <div class="cbox">
+    <div class="ctitle">Nhấn giữ ảnh → Lưu ảnh → Gửi bạn bè</div>
+    <img id="cardimg" src="share-card.png" alt="card">
+    <button class="btn" id="cclose">Đóng</button>
+  </div>
+</div>
 <div id="shareHelp" class="modal hide">
   <div class="mbox">
     <div class="mtitle">Đã copy nội dung ✔</div>
@@ -203,10 +216,10 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
   <div class="reward hide" id="reward">🏆 Đạt MÀN ẨN + mua 1 ly<br>Tặng 1 xúc xích nướng · 1 lần/ngày</div>
   <div class="acts">
     <button class="btn" id="share">Chia sẻ</button>
-    <button class="btn zalo" id="zalo">Vào nhóm Zalo</button>
+    <a class="btn zalo" id="zalo" href="https://zalo.me/g/ozu0yzjsdpgmctvtnmwy">Vào nhóm Zalo</a>
   </div>
-  <div class="inapp hide" id="inapp">Đang mở trong app Zalo<br>Bấm Chia sẻ để copy nội dung, rồi dán vào nhóm</div>
-  <small id="hint">Thi đấu mỗi ngày · Điểm cao có quà · Game mới mỗi tuần</small>
+  <div class="inapp hide" id="inapp">Bấm Chia sẻ → ảnh được sao chép<br>Giữ ô nhập tin → Dán → Gửi</div>
+  <div class="shot">📸 Chụp màn hình là gửi được ngay</div>
   <a class="againlink" id="again">Chơi lại →</a>
 </div>
 <script>
@@ -697,33 +710,28 @@ function toast(msg){
 }
 
 async function shareResult(){
-  const text='Tôi được '+score+' điểm trong PopSip · Bắt Trân Châu! Bạn có vượt được không?';
   const ref=SITE+'?ch='+score+'&n='+encodeURIComponent(playerName);
+  const text='Tôi được '+score+' điểm trong PopSip · Bắt Trân Châu! Bạn có vượt được không?';
+
+  // 1) 系统分享面板（Safari/Chrome：一步发出）
   try{
     if(posterBlob&&navigator.canShare&&navigator.canShare({files:[new File([posterBlob],'popsip.png',{type:'image/png'})]})){
       await navigator.share({files:[new File([posterBlob],'popsip-'+score+'.png',{type:'image/png'})],text:text+' '+ref});
       return;
     }
-    if(navigator.share){await navigator.share({text:text,url:ref});return;}
-  }catch(e){
-    if(e&&e.name==='AbortError')return;
-  }
-  // 内置浏览器：直接复制整段文案，让客户粘到群里
-  if(INAPP){
-    try{ await navigator.clipboard.writeText(text+' '+ref); }catch(_){}
-    document.getElementById('shareHelp').classList.remove('hide');
-    return;
-  }
-  // 兜底：复制挑战链接 + 提示保存图片
+  }catch(e){ if(e&&e.name==='AbortError')return; }
+
+  // 2) 内置浏览器：把图片直接复制到剪贴板，粘贴即可发送
   try{
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      await navigator.clipboard.writeText(ref);
-      toast('Đã copy link khiêu chiến · Nhấn giữ ảnh để lưu');
-    }else{ throw 0; }
-  }catch(_){
-    toast('Nhấn giữ ảnh để lưu · hoặc chụp màn hình gửi nhóm');
-  }
-  saveImage();
+    if(posterBlob&&navigator.clipboard&&window.ClipboardItem){
+      await navigator.clipboard.write([new ClipboardItem({'image/png':Promise.resolve(posterBlob)})]);
+      toast('Đã sao chép ảnh · Giữ ô nhập tin → Dán → Gửi');
+      return;
+    }
+  }catch(e){}
+
+  // 3) 最后兜底：弹转发卡，长按保存
+  document.getElementById('card').classList.remove('hide');
 }
 
 function gameOver(){
@@ -787,6 +795,7 @@ document.getElementById('play').onclick=()=>{
 };
 document.getElementById('share').onclick=shareResult;
 
+document.getElementById('cclose').onclick=function(){document.getElementById('card').classList.add('hide');};
 document.getElementById('mclose').onclick=function(){document.getElementById('shareHelp').classList.add('hide');};
 document.getElementById('zalo').onclick=function(){ if(ZALO_URL){ location.href=ZALO_URL; } };
 if(!ZALO_URL){ document.getElementById('zalo').style.display='none'; }
