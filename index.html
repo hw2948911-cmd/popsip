@@ -231,7 +231,7 @@ let W=0,H=0,cupX=0,cupY=0;
 const cupW=68,cupH=86;
 
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
-let hidden=false,misses=0,bannerT=0,bursts=[];
+let hidden=false,misses=0,bannerT=0,bursts=[],combo=0,maxCombo=0;
 const BASE_TIME=60;   // 前 60 秒的判定时间点
 const MISS_ALLOWED=6; // 前 60 秒最多能漏几个（改 0 就是零失误）
 // 固定掉落顺序：每个循环 10 个（6 黑 / 3 白 / 1 布丁），分数可比、比赛公平
@@ -255,12 +255,12 @@ function resize(){
 }
 
 function reset(){
-  score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;
+  score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;
   cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupTarget=cupX;
   // 开局先铺 4 颗，避免前几秒空屏
   for(let i=0;i<4;i++){
     const kind=kindAt(spawnCount++,0);
-    pearls.push({x:40+((i*173)%(W-80)),y:100+i*118,r:kind==='pudding'?14:11,
+    pearls.push({x:40+((i*173)%(W-80)),y:175+i*118,r:kind==='pudding'?14:11,
       kind:kind,pts:kind==='pudding'?5:(kind==='white'?2:1),v:120});
   }
 }
@@ -291,7 +291,7 @@ function update(dt){
     hidden=true;bannerT=2.8;
   }
   if(time>=DUR){gameOver();return;}
-  level=Math.min(16,1+Math.floor(score/10));
+  level=Math.max(level,Math.min(16,1+Math.floor(score/10)));
   let gap=Math.max(0.26,1.10-level*0.05-Math.max(0,time-6)*0.011);
   if(hidden)gap=Math.max(0.13,gap*0.62);
   // 杯子限速，防止左右刷屏作弊
@@ -321,14 +321,16 @@ function update(dt){
     const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/4;
 
     if(inZone&&Math.abs(p.x-cupX)<cupW*0.40+p.r*0.35){
-      score+=p.pts;shake=9;
+      score+=p.pts;shake=9;combo++;if(combo>maxCombo)maxCombo=combo;
       bursts.push({x:p.x,y:cupY,t:0,pts:p.pts,kind:p.kind});
+      if(combo%10===0){ score+=5; shake=14; bursts.push({x:W/2,y:cupY-60,t:0,pts:5,bonus:true}); }
       pearls.splice(i,1);
       continue;
     }
     if(p.y-p.r>H){
       pearls.splice(i,1);shake=5;
-      if(!hidden){score=Math.max(0,score-2);misses++;}   // 60 秒后漏接不扣分
+      if(!hidden){score=Math.max(0,score-2);misses++;}
+      combo=0;   // 60 秒后漏接不扣分
     }
   }
   if(shake>0)shake=Math.max(0,shake-dt*45);
@@ -377,7 +379,15 @@ function drawBursts(){
     ctx.fillStyle='#FFE9A8';
     ctx.font='800 '+Math.round(16+4*(1-k))+'px -apple-system,Roboto,sans-serif';
     ctx.textAlign='center';
-    ctx.fillText('+'+b.pts, b.x, b.y-14-k*34);
+    if(b.bonus){
+      ctx.font='900 '+Math.round(24+8*(1-k))+'px -apple-system,Roboto,sans-serif';
+      ctx.fillStyle='#FFD34D';
+      ctx.fillText('COMBO +'+b.pts, b.x, b.y-20-k*40);
+    }else{
+      ctx.font='800 '+Math.round(16+4*(1-k))+'px -apple-system,Roboto,sans-serif';
+      ctx.fillStyle='#FFE9A8';
+      ctx.fillText('+'+b.pts, b.x, b.y-14-k*34);
+    }
     ctx.restore();
   }
 }
@@ -579,18 +589,22 @@ function drawPearl(p){
   if(p.kind==='candy'){drawCandy(p);return;}
   if(p.kind==='gift'){drawGift(p);return;}
   if(p.kind==='pudding'){
-    const w=p.r*1.8,h=p.r*1.6;
+const w=p.r*2.05,h=p.r*1.02;                  // 矮一点、宽一点，像焦糖布丁
     ctx.beginPath();
     ctx.moveTo(p.x-w/2,p.y-h/2);
     ctx.lineTo(p.x+w/2,p.y-h/2);
-    ctx.lineTo(p.x+w*0.38,p.y+h/2);
-    ctx.quadraticCurveTo(p.x,p.y+h/2+7,p.x-w*0.38,p.y+h/2);
+    ctx.lineTo(p.x+w*0.34,p.y+h/2);
+    ctx.quadraticCurveTo(p.x,p.y+h/2+5,p.x-w*0.34,p.y+h/2);
     ctx.closePath();
     const g2=ctx.createLinearGradient(0,p.y-h/2,0,p.y+h/2);
-    g2.addColorStop(0,'#FFE7A8');g2.addColorStop(1,'#EFB43F');
+    g2.addColorStop(0,'#FFE9B0');g2.addColorStop(1,'#EFB43F');
     ctx.fillStyle=g2;ctx.fill();
-    ctx.beginPath();ctx.ellipse(p.x,p.y-h/2,w/2,w*0.16,0,0,7);
+    // 焦糖顶面
+    ctx.beginPath();ctx.ellipse(p.x,p.y-h/2,w/2,w*0.15,0,0,7);
     ctx.fillStyle='#A9581B';ctx.fill();
+    // 高光
+    ctx.beginPath();ctx.ellipse(p.x-w*0.16,p.y+h*0.06,w*0.10,h*0.20,0,0,7);
+    ctx.fillStyle='rgba(255,255,255,.35)';ctx.fill();
     return;
   }
   const g=ctx.createRadialGradient(p.x-3,p.y-4,1,p.x,p.y,p.r);
@@ -614,8 +628,14 @@ function draw(){
   ctx.fillText('Điểm '+score,20,HUD_Y);
   ctx.textAlign='right';
   ctx.fillText(Math.max(0,Math.ceil((hidden?DUR:BASE_TIME)-time))+'s',W-20,HUD_Y);
-  ctx.textAlign='center';ctx.font='600 14px -apple-system,Roboto,sans-serif';
-  ctx.globalAlpha=.85;ctx.fillText('Cấp '+level,W/2,HUD_Y);ctx.globalAlpha=1;ctx.restore();
+  if(combo>=2){
+    const k=Math.min(1,combo/12);
+    ctx.textAlign='center';
+    ctx.font='900 '+Math.round(17+k*7)+'px -apple-system,Roboto,sans-serif';
+    ctx.fillStyle='#FFE9A8';
+    ctx.fillText('×'+combo+' COMBO',W/2,HUD_Y);
+  }
+  ctx.restore();
   if(true){
     const left=Math.max(0,MISS_ALLOWED-misses);
     ctx.save();ctx.textAlign='left';ctx.font='800 15px -apple-system,Roboto,sans-serif';
@@ -700,10 +720,15 @@ function buildPoster(){
   g.font='700 26px -apple-system,Roboto,sans-serif';
   g.globalAlpha=.85;g.fillText('ĐIỂM',360,552);g.globalAlpha=1;
   g.font='600 24px -apple-system,Roboto,sans-serif';
-  g.fillText((hidden?'MÀN ẨN · ':'')+'Cấp '+level,360,598);
+  g.fillStyle='#FFE9A8';
+  g.font='900 30px -apple-system,Roboto,sans-serif';
+  g.fillText('COMBO ×'+maxCombo,360,600);
+  g.fillStyle='#fff';
+  g.font='700 20px -apple-system,Roboto,sans-serif';
+  g.fillText(hidden?'MÀN ẨN':'60 giây',360,626);
 
   if(qrImg.complete&&qrImg.naturalWidth){
-    const qs=176,pad=13,w=qs+pad*2,bx=360-w/2,by=628;
+    const qs=164,pad=13,w=qs+pad*2,bx=360-w/2,by=652;
     g.fillStyle='#fff';roundRect(g,bx,by,w,w,16);g.fill();
     g.drawImage(qrImg,bx+pad,by+pad,qs,qs);
     g.fillStyle='#fff';g.font='700 21px -apple-system,Roboto,sans-serif';
