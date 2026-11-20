@@ -19,25 +19,25 @@ html,body{margin:0;height:100%;height:100dvh;overflow:hidden;background:#E0006B;
 font-family:-apple-system,"Segoe UI",Roboto,sans-serif;overscroll-behavior:none}
 #game{display:block;width:100%;height:100%;touch-action:none}
 .panel{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
-justify-content:center;gap:14px;color:#fff;text-align:center;padding:26px;
+justify-content:center;gap:9px;color:#fff;text-align:center;padding:16px;
 background:
  radial-gradient(120% 80% at 20% 8%, rgba(255,255,255,.16), rgba(255,255,255,0) 60%),
  linear-gradient(180deg,#E8117C 0%,#C40A5C 55%,#8E0640 100%);}
 .hide{display:none!important}
-.acts{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.acts{display:flex;gap:10px;justify-content:center;width:100%;max-width:330px}
 .btn.ghost{background:transparent;color:#fff;border:2px solid rgba(255,255,255,.75)}
-.acts .btn{min-width:140px}
+.acts .btn{min-width:0;flex:1;padding:13px 8px;font-size:16.5px}
 .inapp{max-width:320px;padding:8px 14px;border-radius:12px;background:rgba(0,0,0,.28);
   font-size:12px;font-weight:700;line-height:1.5;color:#FFE9A8;text-align:center}
-.shot{font-size:14px;font-weight:800;color:#FFE9A8;letter-spacing:.3px}
-.btn.small{padding:9px 26px;font-size:14px;min-width:auto;border-width:1.5px;opacity:.92}
+.shot{font-size:13px;font-weight:800;color:#FFE9A8;letter-spacing:.2px}
+.btn.small{padding:7px 22px;font-size:13px;min-width:auto;border-width:1.5px;opacity:.9;margin-top:2px}
 .btn.zalo{background:#0068FF;color:#fff;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 .challenge{max-width:320px;margin-top:6px;padding:10px 16px;border-radius:14px;
   background:rgba(255,255,255,.16);border:2px solid rgba(255,233,168,.85);
   font-size:14px;font-weight:700;color:#FFE9A8;line-height:1.5}
 .invite{font-size:12px;font-weight:600;color:#fff;opacity:.8}
-.reward{max-width:330px;padding:9px 16px;border-radius:14px;background:rgba(255,233,168,.18);
-  border:2px solid rgba(255,233,168,.9);color:#FFE9A8;font-size:14px;font-weight:800;line-height:1.45}
+.reward{max-width:330px;padding:7px 14px;border-radius:12px;background:rgba(255,233,168,.18);
+  border:1.5px solid rgba(255,233,168,.9);color:#FFE9A8;font-size:12.5px;font-weight:800;line-height:1.3}
 .cbox{background:#fff;border-radius:22px;padding:16px;max-width:330px;width:100%;text-align:center}
 .cbox .ctitle{color:#B0005A;font-weight:900;font-size:15px;margin-bottom:8px}
 .cbox img{display:block;width:100%;border-radius:14px;margin:6px 0 14px;background:#f3f3f3}
@@ -63,7 +63,7 @@ padding:14px 36px;font-size:18px;font-weight:800}
 input{border:0;border-radius:999px;padding:12px 18px;font-size:16px;
 text-align:center;width:220px;outline:0}
 small{opacity:.85;font-size:13px;line-height:1.7}
-#poster{width:80vw;max-width:330px;border-radius:16px;
+#poster{width:auto;height:auto;max-height:48vh;max-width:66vw;border-radius:14px;
 box-shadow:0 10px 34px rgba(0,0,0,.4)}
 
 /* ── 圣诞装饰 ── */
@@ -184,10 +184,8 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
   <div class="dice" id="dice">🎲 Đổi tên khác</div>
   <button class="btn" id="play">Bắt đầu</button>
   <div class="challenge hide" id="challenge"></div>
-  <div class="promo">Thi đấu mỗi ngày · Điểm cao có quà<br>Game mới mỗi tuần</div>
+  <div class="promo">Thi đấu mỗi ngày · Điểm cao có quà</div>
   <div class="invite hide" id="invite"></div>
-  <small style="max-width:300px">60 giây · rơi ≤3 quả = MÀN ẨN (30 giây)<br>
-  đen +1 · trắng +2 · bánh flan +5 · rơi −2 (60s đầu)<br>MÀN ẨN: 5 loại bánh kẹo · +5 mỗi cái</small>
 </div>
 
 <div id="toast" class="toast hide"></div>
@@ -212,12 +210,11 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
 <div id="over" class="panel hide">
   <canvas id="posterCv" style="display:none"></canvas>
   <img id="poster" alt="score">
-  <div class="reward hide" id="reward">🏆 Đạt MÀN ẨN + mua 1 ly<br>Tặng 1 xúc xích nướng · 1 lần/ngày</div>
   <div class="acts">
     <button class="btn" id="share">Chia sẻ</button>
     <a class="btn zalo" id="zalo" href="https://zalo.me/g/ozu0yzjsdpgmctvtnmwy">Vào nhóm Zalo</a>
   </div>
-  <div class="inapp hide" id="inapp">Bấm Chia sẻ → ảnh được sao chép<br>Giữ ô nhập tin → Dán → Gửi</div>
+  
   <div class="shot">📸 Chụp màn hình là gửi được ngay</div>
   <button class="btn ghost small" id="again">Chơi lại</button>
 </div>
@@ -715,7 +712,6 @@ function buildPoster(){
   }
   g.font='700 21px -apple-system,Roboto,sans-serif';
   g.fillStyle='#FFE9A8';
-  g.fillText('Thi đấu mỗi ngày · Điểm cao có quà',360,896);
   g.font='600 18px -apple-system,Roboto,sans-serif';
   g.fillStyle='#fff';g.globalAlpha=.8;
   if(hidden){
@@ -725,7 +721,7 @@ function buildPoster(){
     g.fillText('Game mới mỗi tuần · Nhóm Zalo nhận quà',360,928);
   }
   g.globalAlpha=.75;
-  g.fillText('PopSip · 280 Lạc Long Quân, Q.11',360,958);
+  g.fillText('Tham gia nhóm Zalo để nhận quà',360,958);
   g.globalAlpha=1;
 
   p.toBlob(function(b){posterBlob=b;},'image/png');
@@ -775,8 +771,6 @@ function gameOver(){
   state='over';
   buildPoster();
   if(INAPP){ const ia=document.getElementById('inapp'); if(ia) ia.classList.remove('hide'); }
-  const rw=document.getElementById('reward');
-  if(rw){ if(hidden){ rw.classList.remove('hide'); } else { rw.classList.add('hide'); } }
   const hintEl=document.getElementById('hint');
   if(hintEl&&Number.isFinite(CH_SCORE)&&CH_SCORE>0){
     hintEl.textContent = score>CH_SCORE
@@ -828,7 +822,6 @@ document.getElementById('dice').onclick=()=>{ nameEl.focus(); nameEl.value=rando
 document.getElementById('play').onclick=()=>{
   playerName=(document.getElementById('name').value||'').trim().slice(0,12)||randomName();
   document.getElementById('start').classList.add('hide');
-  document.getElementById('reward').classList.add('hide');
   resize();reset();state='play';
 };
 document.getElementById('share').onclick=shareResult;
