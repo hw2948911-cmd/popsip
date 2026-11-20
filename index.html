@@ -235,7 +235,7 @@ let W=0,H=0,cupX=0,cupY=0;
 const cupW=68,cupH=86;
 
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
-let hidden=false,misses=0,bannerT=0;
+let hidden=false,misses=0,bannerT=0,bursts=[];
 const BASE_TIME=60;   // 前 60 秒的判定时间点
 const MISS_ALLOWED=3; // 前 60 秒最多能漏几个（改 0 就是零失误）
 // 固定掉落顺序：每个循环 10 个（6 黑 / 3 白 / 1 布丁），分数可比、比赛公平
@@ -303,6 +303,7 @@ function update(dt){
   const dxc=cupTarget-cupX;
   const step=cupMaxV*dt;
   cupX += Math.abs(dxc)<=step ? dxc : (dxc>0?step:-step);
+  for(let bi=bursts.length-1;bi>=0;bi--){ bursts[bi].t+=dt; if(bursts[bi].t>0.5)bursts.splice(bi,1); }
   spawnT-=dt;
   if(spawnT<=0){
     if(spawnPearl()){
@@ -322,12 +323,11 @@ function update(dt){
     const p=pearls[i];
     p.y+=p.v*dt;
     const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/4;
-    if(p.caught){ if(p.y-p.r>cupY+cupH*0.82){pearls.splice(i,1);} continue; }
+
     if(inZone&&Math.abs(p.x-cupX)<cupW*0.40+p.r*0.35){
       score+=p.pts;shake=9;
-      p.caught=true;
-      p.x=cupX+(p.x-cupX)*0.35;
-      p.v=Math.min(p.v,240);
+      bursts.push({x:p.x,y:cupY,t:0,pts:p.pts,kind:p.kind});
+      pearls.splice(i,1);
       continue;
     }
     if(p.y-p.r>H){
@@ -358,12 +358,38 @@ function drawBackground(){
   ctx.globalAlpha=1;
 }
 
+function cupPath(){
+  const t=cupW/2,b=cupW*0.36;
+  ctx.beginPath();ctx.moveTo(-t,0);ctx.lineTo(-b,cupH);
+  ctx.quadraticCurveTo(0,cupH+12,b,cupH);ctx.lineTo(t,0);ctx.closePath();
+}
+function drawBursts(){
+  for(let i=0;i<bursts.length;i++){
+    const b=bursts[i], k=b.t/0.5;
+    ctx.save();
+    ctx.globalAlpha=Math.max(0,1-k);
+    // 水花：5 颗小珠子从杯口溅起
+    ctx.fillStyle='#fff';
+    for(let j=0;j<5;j++){
+      const a=-Math.PI/2+(j-2)*0.42;
+      const d=8+k*30;
+      ctx.beginPath();
+      ctx.arc(b.x+Math.cos(a)*d, b.y+Math.sin(a)*d+k*10, 2.6*(1-k)+1, 0, 7);
+      ctx.fill();
+    }
+    // 飘分
+    ctx.fillStyle='#FFE9A8';
+    ctx.font='800 '+Math.round(16+4*(1-k))+'px -apple-system,Roboto,sans-serif';
+    ctx.textAlign='center';
+    ctx.fillText('+'+b.pts, b.x, b.y-14-k*34);
+    ctx.restore();
+  }
+}
 function drawCup(){
   ctx.save();
   ctx.translate(cupX+(Math.random()-0.5)*shake,cupY);
-  const t=cupW/2,b=cupW*0.36;
-  const p=()=>{ctx.beginPath();ctx.moveTo(-t,0);ctx.lineTo(-b,cupH);
-    ctx.quadraticCurveTo(0,cupH+12,b,cupH);ctx.lineTo(t,0);ctx.closePath();};
+  const t=cupW/2;
+  const p=cupPath;
   p();ctx.fillStyle='#FFFDF9';ctx.fill();
   p();ctx.strokeStyle=PINK;ctx.lineWidth=2;ctx.stroke();
   ctx.beginPath();ctx.ellipse(0,0,t,6,0,0,7);
@@ -615,8 +641,8 @@ function draw(){
     ctx.restore();
   }
   pearls.filter(function(q){return !q.caught;}).forEach(drawPearl);
-  pearls.filter(function(q){return q.caught;}).forEach(drawPearl);
   drawCup();
+  drawBursts();
 }
 
 let last=0;
