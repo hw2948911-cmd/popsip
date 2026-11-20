@@ -322,8 +322,13 @@ function update(dt){
     const p=pearls[i];
     p.y+=p.v*dt;
     const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/4;
+    if(p.caught){ if(p.y-p.r>cupY+cupH*0.82){pearls.splice(i,1);} continue; }
     if(inZone&&Math.abs(p.x-cupX)<cupW*0.40+p.r*0.35){
-      pearls.splice(i,1);score+=p.pts;shake=9;continue;
+      score+=p.pts;shake=9;
+      p.caught=true;
+      p.x=cupX+(p.x-cupX)*0.35;
+      p.v=Math.min(p.v,240);
+      continue;
     }
     if(p.y-p.r>H){
       pearls.splice(i,1);shake=5;
@@ -364,8 +369,8 @@ function drawCup(){
   ctx.beginPath();ctx.ellipse(0,0,t,6,0,0,7);
   ctx.fillStyle='#FFFDF9';ctx.fill();ctx.stroke();
   ctx.fillStyle=PINK;ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.font='italic bold 19px Georgia,serif';
-  ctx.fillText('PopSip',0,cupH*0.47);
+  ctx.font='italic bold '+Math.round(cupW*0.225)+'px Georgia,serif';
+  ctx.fillText('PopSip',0,cupH*0.46);
   ctx.restore();
 }
 
@@ -609,7 +614,8 @@ function draw(){
     ctx.fillText('30 giây · mỗi món +5 điểm',W/2,H*0.30+34);
     ctx.restore();
   }
-  pearls.forEach(drawPearl);
+  pearls.filter(function(q){return !q.caught;}).forEach(drawPearl);
+  pearls.filter(function(q){return q.caught;}).forEach(drawPearl);
   drawCup();
 }
 
