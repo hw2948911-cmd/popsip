@@ -29,8 +29,8 @@ background:
 .acts .btn{min-width:140px}
 .inapp{max-width:320px;padding:8px 14px;border-radius:12px;background:rgba(0,0,0,.28);
   font-size:12px;font-weight:700;line-height:1.5;color:#FFE9A8;text-align:center}
-.zlink{color:#8FD0FF;font-size:14px;font-weight:700;text-decoration:none;
-  border-bottom:1px dashed rgba(143,208,255,.55);padding-bottom:2px}
+.againlink{color:rgba(255,255,255,.82);font-size:15px;font-weight:700;text-decoration:none;
+  border-bottom:1px dashed rgba(255,255,255,.45);padding-bottom:2px;margin-top:2px}
 .btn.zalo{background:#0068FF;color:#fff}
 .challenge{max-width:320px;margin-top:6px;padding:10px 16px;border-radius:14px;
   background:rgba(255,255,255,.16);border:2px solid rgba(255,233,168,.85);
@@ -38,6 +38,13 @@ background:
 .invite{font-size:12px;font-weight:600;color:#fff;opacity:.8}
 .reward{max-width:330px;padding:9px 16px;border-radius:14px;background:rgba(255,233,168,.18);
   border:2px solid rgba(255,233,168,.9);color:#FFE9A8;font-size:14px;font-weight:800;line-height:1.45}
+.modal{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;
+  background:rgba(30,0,16,.66);padding:24px}
+.mbox{background:#fff;color:#B0005A;border-radius:22px;padding:26px 22px;max-width:330px;width:100%;
+  text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+.mtitle{font-size:19px;font-weight:900;margin-bottom:14px}
+.msteps{text-align:left;font-size:15px;line-height:1.9;margin:0 0 18px;padding-left:22px;color:#7A0044}
+.mbox .btn{background:#D60066;color:#fff;width:100%}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:34px;z-index:20;
   max-width:86vw;padding:12px 20px;border-radius:999px;background:rgba(40,0,20,.92);color:#fff;
   font-size:14px;font-weight:700;line-height:1.45;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.35)}
@@ -179,17 +186,28 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
 </div>
 
 <div id="toast" class="toast hide"></div>
+<div id="shareHelp" class="modal hide">
+  <div class="mbox">
+    <div class="mtitle">Đã copy nội dung ✔</div>
+    <ol class="msteps">
+      <li>Mở Zalo → chọn nhóm</li>
+      <li>Giữ ô nhập tin → Dán</li>
+      <li>Gửi kèm ảnh (nhấn giữ ảnh để lưu)</li>
+    </ol>
+    <button class="btn" id="mclose">Đã hiểu</button>
+  </div>
+</div>
 <div id="over" class="panel hide">
   <canvas id="posterCv" style="display:none"></canvas>
   <img id="poster" alt="score">
   <div class="reward hide" id="reward">🏆 Đạt MÀN ẨN + mua 1 ly<br>Tặng 1 xúc xích nướng · 1 lần/ngày</div>
   <div class="acts">
     <button class="btn" id="share">Chia sẻ</button>
-    <button class="btn ghost" id="again">Chơi lại</button>
+    <button class="btn zalo" id="zalo">Vào nhóm Zalo</button>
   </div>
-  <a class="zlink" id="zalo">Vào nhóm Zalo nhận quà →</a>
   <div class="inapp hide" id="inapp">Đang mở trong app Zalo<br>Bấm Chia sẻ để copy nội dung, rồi dán vào nhóm</div>
   <small id="hint">Thi đấu mỗi ngày · Điểm cao có quà · Game mới mỗi tuần</small>
+  <a class="againlink" id="again">Chơi lại →</a>
 </div>
 <script>
 const cv=document.getElementById('game'),ctx=cv.getContext('2d');
@@ -249,7 +267,7 @@ function spawnPearl(){
   if(FEST.indexOf(kind)>=0){pts=5;rad=19;}
   else if(kind==='pudding'){pts=5;rad=14;}
   else if(kind==='white'){pts=2;rad=11;}
-  const rush=Math.min(1.5,1+Math.max(0,time-12)*0.0085)*(hidden?1.12:1);
+  const rush=Math.min(1.8,1+Math.max(0,time-8)*0.011)*(hidden?1.38:1);
   let px=26+Math.random()*(W-52);
   for(let k=0;k<8;k++){
     const clash=pearls.some(p=>p.y<190&&Math.abs(p.x-px)<100);
@@ -257,7 +275,7 @@ function spawnPearl(){
     px=26+Math.random()*(W-52);
   }
   pearls.push({x:px,y:-24,r:rad,kind:kind,pts:pts,
-    v:Math.min(280,(80+level*9+Math.random()*26)*rush)});
+    v:Math.min(hidden?480:400,(92+level*12+Math.random()*32)*rush)});
   return true;
 }
 
@@ -271,8 +289,8 @@ function update(dt){
   }
   if(time>=DUR){gameOver();return;}
   level=Math.min(16,1+Math.floor(score/10));
-  let gap=Math.max(0.38,1.30-level*0.045-Math.max(0,time-8)*0.006);
-  if(hidden)gap*=0.55;
+  let gap=Math.max(0.30,1.16-level*0.05-Math.max(0,time-6)*0.008);
+  if(hidden)gap=Math.max(0.16,gap*0.55);
   spawnT-=dt;
   if(spawnT<=0){
     if(spawnPearl()){
@@ -692,8 +710,8 @@ async function shareResult(){
   }
   // 内置浏览器：直接复制整段文案，让客户粘到群里
   if(INAPP){
-    try{ await navigator.clipboard.writeText(text+' '+ref); toast('Đã copy nội dung · Dán vào nhóm Zalo'); }
-    catch(_){ toast('Nhấn giữ ảnh để lưu · dán link vào nhóm'); }
+    try{ await navigator.clipboard.writeText(text+' '+ref); }catch(_){}
+    document.getElementById('shareHelp').classList.remove('hide');
     return;
   }
   // 兜底：复制挑战链接 + 提示保存图片
@@ -769,6 +787,7 @@ document.getElementById('play').onclick=()=>{
 };
 document.getElementById('share').onclick=shareResult;
 
+document.getElementById('mclose').onclick=function(){document.getElementById('shareHelp').classList.add('hide');};
 document.getElementById('zalo').onclick=function(){ if(ZALO_URL){ location.href=ZALO_URL; } };
 if(!ZALO_URL){ document.getElementById('zalo').style.display='none'; }
 document.getElementById('again').onclick=function(){
