@@ -233,7 +233,7 @@ const cupW=68,cupH=86;
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
 let hidden=false,misses=0,bannerT=0,bursts=[];
 const BASE_TIME=60;   // 前 60 秒的判定时间点
-const MISS_ALLOWED=3; // 前 60 秒最多能漏几个（改 0 就是零失误）
+const MISS_ALLOWED=6; // 前 60 秒最多能漏几个（改 0 就是零失误）
 // 固定掉落顺序：每个循环 10 个（6 黑 / 3 白 / 1 布丁），分数可比、比赛公平
 // 掉落顺序：20 个一循环，按时间解锁高分糖
 function kindAt(n,t){
