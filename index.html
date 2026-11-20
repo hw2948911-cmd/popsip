@@ -210,6 +210,7 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
 <div id="over" class="panel hide">
   <canvas id="posterCv" style="display:none"></canvas>
   <img id="poster" alt="score">
+  <div class="reward hide" id="reward">🏆 MÀN ẨN + 1 LY · TẶNG 1 XÚC XÍCH</div>
   <div class="acts">
     <button class="btn" id="share">Chia sẻ</button>
     <a class="btn zalo" id="zalo" href="https://zalo.me/g/ozu0yzjsdpgmctvtnmwy">Vào nhóm Zalo</a>
@@ -278,7 +279,7 @@ function spawnPearl(){
   const rush=Math.min(2.1,1+Math.max(0,time-6)*0.013)*(hidden?1.35:1);
   let px=26+Math.random()*(W-52);   // 完全随机，允许扎堆
   pearls.push({x:px,y:-24,r:rad,kind:kind,pts:pts,
-    v:Math.min(hidden?620:460,(96+level*14+Math.random()*38)*rush)});
+    v:Math.min(hidden?700:460,(96+level*14+Math.random()*38)*rush)});
   return true;
 }
 
@@ -293,7 +294,7 @@ function update(dt){
   if(time>=DUR){gameOver();return;}
   level=Math.max(level,Math.min(16,1+Math.floor(score/10)));
   let gap=Math.max(0.26,1.10-level*0.05-Math.max(0,time-6)*0.011);
-  if(hidden)gap=Math.max(0.13,gap*0.62);
+  if(hidden)gap=Math.max(0.30,gap*0.85);   // 数量大幅减少
   // 杯子限速，防止左右刷屏作弊
   const cupMaxV=1500;
   const dxc=cupTarget-cupX;
@@ -305,7 +306,7 @@ function update(dt){
     if(spawnPearl()){
       spawnT=gap;
       if(time>40&&Math.random()<0.30)spawnPearl();
-      if(hidden&&Math.random()<0.45&&pearls.length){
+      if(hidden&&Math.random()<0.35&&pearls.length){
         // 同高度镜像掉一颗：接一边必漏另一边
         const last=pearls[pearls.length-1];
         const k2=kindAt(spawnCount++,time);
@@ -795,6 +796,8 @@ function gameOver(){
   state='over';
   buildPoster();
   if(INAPP){ const ia=document.getElementById('inapp'); if(ia) ia.classList.remove('hide'); }
+  const rw=document.getElementById('reward');
+  if(rw){ if(hidden){ rw.classList.remove('hide'); } else { rw.classList.add('hide'); } }
   const hintEl=document.getElementById('hint');
   if(hintEl&&Number.isFinite(CH_SCORE)&&CH_SCORE>0){
     hintEl.textContent = score>CH_SCORE
@@ -846,6 +849,7 @@ document.getElementById('dice').onclick=()=>{ nameEl.focus(); nameEl.value=rando
 document.getElementById('play').onclick=()=>{
   playerName=(document.getElementById('name').value||'').trim().slice(0,12)||randomName();
   document.getElementById('start').classList.add('hide');
+  document.getElementById('reward').classList.add('hide');
   resize();reset();state='play';
 };
 document.getElementById('share').onclick=shareResult;
