@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>PopSip · Bắt Trân Châu</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PopSip">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#E8117C">
+<link rel="icon" type="image/png" sizes="512x512" href="./popsip-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./popsip-icon.png">
+<meta name="theme-color" content="#E8117C">
+<link rel="manifest" href="./manifest.webmanifest">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+html,body{margin:0;height:100%;height:100dvh;overflow:hidden;background:#E0006B;
+font-family:-apple-system,"Segoe UI",Roboto,sans-serif;overscroll-behavior:none}
+#game{display:block;width:100%;height:100%;touch-action:none}
+.panel{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+justify-content:center;gap:14px;color:#fff;text-align:center;padding:26px;
+background:
+ radial-gradient(120% 80% at 20% 8%, rgba(255,255,255,.16), rgba(255,255,255,0) 60%),
+ linear-gradient(180deg,#E8117C 0%,#C40A5C 55%,#8E0640 100%);}
+.hide{display:none!important}
+.logo{font-family:Georgia,"Times New Roman",serif;font-style:italic;
+font-weight:700;letter-spacing:-2px}
+h1{font-size:40px;margin:0;font-weight:800}
+.btn{background:#fff;color:#D60066;border:0;border-radius:999px;
+padding:14px 36px;font-size:18px;font-weight:800}
+input{border:0;border-radius:999px;padding:12px 18px;font-size:16px;
+text-align:center;width:220px;outline:0}
+small{opacity:.85;font-size:13px;line-height:1.7}
+#poster{width:80vw;max-width:330px;border-radius:16px;
+box-shadow:0 10px 34px rgba(0,0,0,.4)}
+
+/* ── 圣诞装饰 ── */
+.panel{z-index:2}
+.snow{position:fixed;inset:0;pointer-events:none;z-index:4;overflow:hidden}
+.flake{position:absolute;top:-26px;color:#fff;text-shadow:0 0 6px rgba(255,255,255,.55);
+animation-name:fall;animation-timing-function:linear;animation-iteration-count:infinite}
+@keyframes fall{0%{transform:translateY(0) rotate(0deg)}100%{transform:translateY(112vh) rotate(360deg)}}
+.xmas{position:fixed;left:0;right:0;top:0;height:auto;pointer-events:none;z-index:3;line-height:0}
+.xmas svg{display:block;width:100%;height:auto}
+.xmas .twinkle{animation:tw 2.4s ease-in-out infinite}
+.xmas .twinkle:nth-child(2n){animation-delay:.8s}
+.xmas .twinkle:nth-child(3n){animation-delay:1.5s}
+@keyframes tw{0%,100%{opacity:.55}50%{opacity:1}}
+@media (prefers-reduced-motion: reduce){.flake{animation:none;opacity:.35}.xmas .twinkle{animation:none}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="snow" id="snow"></div>
+<div class="xmas" aria-hidden="true">
+  <svg viewBox="0 0 400 92" preserveAspectRatio="xMidYMin meet">
+    <defs>
+      <radialGradient id="gGold" cx="34%" cy="28%" r="75%">
+        <stop offset="0" stop-color="#FFF8D6"/><stop offset=".55" stop-color="#FFD34D"/><stop offset="1" stop-color="#D99A00"/>
+      </radialGradient>
+      <radialGradient id="gRed" cx="34%" cy="28%" r="75%">
+        <stop offset="0" stop-color="#FFC0C0"/><stop offset=".55" stop-color="#E23B3B"/><stop offset="1" stop-color="#941212"/>
+      </radialGradient>
+      <radialGradient id="gWhite" cx="34%" cy="28%" r="75%">
+        <stop offset="0" stop-color="#FFFFFF"/><stop offset=".6" stop-color="#EAF2FB"/><stop offset="1" stop-color="#C3D4E6"/>
+      </radialGradient>
+      <linearGradient id="gPin" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#2AB169"/><stop offset="1" stop-color="#0A5C32"/>
+      </linearGradient>
+      <radialGradient id="gGlow" cx="50%" cy="0%" r="80%">
+        <stop offset="0" stop-color="rgba(255,214,120,.5)"/><stop offset="1" stop-color="rgba(255,214,120,0)"/>
+      </radialGradient>
+    </defs>
+
+    <ellipse cx="200" cy="0" rx="240" ry="52" fill="url(#gGlow)"/>
+
+    <path d="M-12,14 Q200,86 412,14" fill="none" stroke="#0A5C32" stroke-width="5" stroke-linecap="round"/>
+    <path d="M-12,14 Q200,86 412,14" fill="none" stroke="#1E9A55" stroke-width="2" stroke-dasharray="5 9" opacity=".95"/>
+    <path d="M-12,19 Q200,91 412,19" fill="none" stroke="#FFD34D" stroke-width="1" opacity=".45"/>
+
+    <path d="M52,40 Q200,74 348,40" fill="none" stroke="#0A5C32" stroke-width="2.6" opacity=".9"/>
+
+    <g class="twinkle">
+      <circle cx="40" cy="29" r="6.4" fill="url(#gGold)"/>
+      <circle cx="149.6" cy="48" r="6.4" fill="url(#gRed)"/>
+      <circle cx="200" cy="50" r="7" fill="url(#gWhite)"/>
+      <circle cx="250.4" cy="48" r="6.4" fill="url(#gRed)"/>
+      <circle cx="359.6" cy="29" r="6.4" fill="url(#gGold)"/>
+    </g>
+    <g class="twinkle">
+      <circle cx="95" cy="41" r="4.8" fill="url(#gWhite)"/>
+      <circle cx="305" cy="41" r="4.8" fill="url(#gWhite)"/>
+    </g>
+
+    <g class="twinkle" opacity=".95">
+      <circle cx="96.4" cy="48.7" r="3.6" fill="#FFE9A8"/>
+      <circle cx="140.8" cy="54.3" r="3.6" fill="#FFF3C4"/>
+      <circle cx="185.2" cy="56.8" r="3.6" fill="#FFE9A8"/>
+      <circle cx="229.6" cy="54.3" r="3.6" fill="#FFF3C4"/>
+      <circle cx="273.6" cy="48.7" r="3.6" fill="#FFE9A8"/>
+    </g>
+
+    <g>
+      <line x1="96.4" y1="48.7" x2="96.4" y2="61" stroke="#FFD34D" stroke-width="1.4"/>
+      <circle cx="96.4" cy="68.6" r="8" fill="url(#gRed)"/>
+      <rect x="93.4" y="60" width="6" height="3.8" rx="1.3" fill="#FFD34D"/>
+      <line x1="273.6" y1="48.7" x2="273.6" y2="61" stroke="#FFD34D" stroke-width="1.4"/>
+      <circle cx="273.6" cy="68.6" r="8" fill="url(#gGold)"/>
+      <rect x="270.6" y="60" width="6" height="3.8" rx="1.3" fill="#E23B3B"/>
+    </g>
+
+    <g>
+      <line x1="140.8" y1="54.3" x2="140.8" y2="65" stroke="#FFD34D" stroke-width="1.2"/>
+      <rect x="131" y="65" width="19" height="14.5" rx="2.2" fill="url(#gRed)"/>
+      <rect x="138.9" y="65" width="3.2" height="14.5" fill="#FFD34D"/>
+      <rect x="131" y="70.2" width="19" height="3" fill="#FFD34D" opacity=".9"/>
+      <line x1="229.6" y1="54.3" x2="229.6" y2="63" stroke="#FFD34D" stroke-width="1.2"/>
+      <rect x="220" y="63" width="19" height="14.5" rx="2.2" fill="url(#gGold)"/>
+      <rect x="227.9" y="63" width="3.2" height="14.5" fill="#E23B3B"/>
+      <rect x="220" y="68.2" width="19" height="3" fill="#E23B3B" opacity=".9"/>
+    </g>
+
+    <g>
+      <path d="M4,52 L30,52 L17,29 Z" fill="url(#gPin)"/>
+      <path d="M2,41 L32,41 L17,18 Z" fill="#1E9A55"/>
+      <path d="M6,30 L28,30 L17,8 Z" fill="#2AB169"/>
+      <rect x="14" y="52" width="6" height="8.5" fill="#7A4A22"/>
+      <circle cx="8" cy="54" r="2.9" fill="#E23B3B"/>
+      <circle cx="27" cy="56" r="2.5" fill="#E23B3B"/>
+    </g>
+    <g>
+      <path d="M370,52 L396,52 L383,29 Z" fill="url(#gPin)"/>
+      <path d="M368,41 L398,41 L383,18 Z" fill="#1E9A55"/>
+      <path d="M372,30 L394,30 L383,8 Z" fill="#2AB169"/>
+      <rect x="380" y="52" width="6" height="8.5" fill="#7A4A22"/>
+      <circle cx="392" cy="54" r="2.9" fill="#E23B3B"/>
+      <circle cx="373" cy="56" r="2.5" fill="#E23B3B"/>
+    </g>
+
+    <g class="twinkle">
+      <circle cx="200" cy="9" r="13" fill="#FFD34D" opacity=".16"/>
+      <path d="M200,1 l3.8,7.8 8.6,1.3 -6.2,6 1.4,8.5 -7.6,-4.1 -7.6,4.1 1.4,-8.5 -6.2,-6 8.6,-1.3 Z"
+            fill="url(#gGold)" stroke="#FFF6C9" stroke-width=".9"/>
+    </g>
+  </svg>
+</div>
+
+<div id="start" class="panel">
+  <div class="logo" style="font-size:56px">PopSip</div>
+  <h1>Bắt Trân Châu</h1>
+  <input id="name" maxlength="12" placeholder="Tên của bạn">
+  <button class="btn" id="play">Bắt đầu</button>
+  <small style="max-width:300px">60 giây mỗi ván · hứng ở 1/3 miệng cốc<br>
+  đen +1 · trắng +2 · bánh flan +5 · rơi mất −2</small>
+</div>
+
+<div id="over" class="panel hide">
+  <canvas id="posterCv" style="display:none"></canvas>
+  < img id="poster" alt="score">
+  <button class="btn" id="again">Chơi lại</button>
+  <small>Nhấn giữ ảnh để lưu, rồi gửi vào nhóm</small>
+</div>
+
+<script>
+const cv=document.getElementById('game'),ctx=cv.getContext('2d');
+const PINK='#E0006B',RED='#D62828',DUR=60;
+let W=0,H=0,cupX=0,cupY=0;
+const cupW=84,cupH=104;
+
+let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0;
+
+function resize(){
+  const d=Math.min(window.devicePixelRatio||1,2);
+  W=cv.clientWidth||window.innerWidth;
+  H=cv.clientHeight||window.innerHeight;
+  cv.width=Math.round(W*d);cv.height=Math.round(H*d);
+  ctx.setTransform(d,0,0,d,0,0);
+  cupY=H-cupH-52;
+  if(!cupX)cupX=W/2;
+}
+
+function reset(){
+  score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;
+  cupX=W/2;cupY=H-cupH-52;
+}
+
+function spawnPearl(){
+  const gapY=Math.max(70,150-Math.max(0,time-30)*2.2);
+  const top=pearls.reduce((m,p)=>Math.min(m,p.y),9999);
+  if(top<gapY)return false;
+  const r=Math.random();
+  let kind='pearl',pts=1,rad=11;
+  if(r>0.96){kind='pudding';pts=5;rad=14;}
+  else if(r>0.84){kind='white';pts=2;rad=11;}
+  const rush=Math.min(2.2,1+Math.max(0,time-15)*0.02);
+  let px=26+Math.random()*(W-52);
+  for(let k=0;k<8;k++){
+    const clash=pearls.some(p=>p.y<190&&Math.abs(p.x-px)<100);
+    if(!clash)break;
+    px=26+Math.random()*(W-52);
+  }
+  pearls.push({x:px,y:-24,r:rad,kind:kind,pts:pts,
+    v:(95+level*14+Math.random()*40)*rush});
+  return true;
+}
+
+function update(dt){
+  if(state!=='play')return;
+  time+=dt;
+  if(time>=DUR){gameOver();return;}
+  level=Math.min(12,1+Math.floor(score/10));
+  const gap=Math.max(0.18,1.35-level*0.05-Math.max(0,time-10)*0.012);
+  spawnT-=dt;
+  if(spawnT<=0){
+    if(spawnPearl()){
+      spawnT=gap;
+      if(time>45&&Math.random()<0.35)spawnPearl();
+    }else{
+      spawnT=0.08;
+    }
+  }
+  for(let i=pearls.length-1;i>=0;i--){
+    const p=pearls[i];
+    p.y+=p.v*dt;
+    const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/3;
+    if(inZone&&Math.abs(p.x-cupX)<cupW*0.5+p.r*0.4){
+      pearls.splice(i,1);score+=p.pts;shake=9;continue;
+    }
+    if(p.y-p.r>H){
+      pearls.splice(i,1);score=Math.max(0,score-2);shake=5;
+    }
+  }
+  if(shake>0)shake=Math.max(0,shake-dt*45);
+}
+
+function drawBackground(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#EA2A78');
+  g.addColorStop(.55,'#CE0A5E');
+  g.addColorStop(1,'#8E0B3C');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+
+  const tt=performance.now()/1000;
+  for(let i=0;i<50;i++){
+    const sp=10+(i%5)*7;
+    const x=(i*137)%(W||1);
+    const y=((i*79+tt*sp)%(H+60))-30;
+    const r=1.4+(i%3)*1.1;
+    ctx.globalAlpha=.55+(i%4)*0.12;
+    ctx.fillStyle='#FFFFFF';
+    ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+function drawCup(){
+  ctx.save();
+  ctx.translate(cupX+(Math.random()-0.5)*shake,cupY);
+  const t=cupW/2,b=cupW*0.36;
+  const p=()=>{ctx.beginPath();ctx.moveTo(-t,0);ctx.lineTo(-b,cupH);
+    ctx.quadraticCurveTo(0,cupH+12,b,cupH);ctx.lineTo(t,0);ctx.closePath();};
+  p();ctx.fillStyle='#FFFDF9';ctx.fill();
+  p();ctx.strokeStyle=PINK;ctx.lineWidth=2;ctx.stroke();
+  ctx.beginPath();ctx.ellipse(0,0,t,6,0,0,7);
+  ctx.fillStyle='#FFFDF9';ctx.fill();ctx.stroke();
+  ctx.fillStyle=PINK;ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.font='italic bold 19px Georgia,serif';
+  ctx.fillText('PopSip',0,cupH*0.47);
+  ctx.restore();
+}
+
+function drawPearl(p){
+  if(p.kind==='pudding'){
+    const w=p.r*1.8,h=p.r*1.6;
+    ctx.beginPath();
+    ctx.moveTo(p.x-w/2,p.y-h/2);
+    ctx.lineTo(p.x+w/2,p.y-h/2);
+    ctx.lineTo(p.x+w*0.38,p.y+h/2);
+    ctx.quadraticCurveTo(p.x,p.y+h/2+7,p.x-w*0.38,p.y+h/2);
+    ctx.closePath();
+    const g2=ctx.createLinearGradient(0,p.y-h/2,0,p.y+h/2);
+    g2.addColorStop(0,'#FFE7A8');g2.addColorStop(1,'#EFB43F');
+    ctx.fillStyle=g2;ctx.fill();
+    ctx.beginPath();ctx.ellipse(p.x,p.y-h/2,w/2,w*0.16,0,0,7);
+    ctx.fillStyle='#A9581B';ctx.fill();
+    return;
+  }
+  const g=ctx.createRadialGradient(p.x-3,p.y-4,1,p.x,p.y,p.r);
+  if(p.kind==='white'){
+    g.addColorStop(0,'rgba(255,255,255,.98)');
+    g.addColorStop(1,'rgba(230,242,255,.8)');
+  }else{
+    g.addColorStop(0,'#6B4226');g.addColorStop(1,'#2A1608');
+  }
+  ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fillStyle=g;ctx.fill();
+  ctx.beginPath();ctx.arc(p.x-p.r*0.32,p.y-p.r*0.35,p.r*0.22,0,7);
+  ctx.fillStyle='rgba(255,255,255,.85)';ctx.fill();
+}
+
+function draw(){
+  drawBackground();
+  const HUD_Y=Math.min(H*0.17,132);
+  ctx.save();ctx.shadowColor='rgba(90,0,40,.55)';ctx.shadowBlur=7;
+  ctx.fillStyle='#fff';ctx.textAlign='left';ctx.textBaseline='alphabetic';
+  ctx.font='800 20px -apple-system,Roboto,sans-serif';
+  ctx.fillText('Điểm '+score,20,HUD_Y);
+  ctx.textAlign='right';
+  ctx.fillText(Math.max(0,Math.ceil(DUR-time))+'s',W-20,HUD_Y);
+  ctx.textAlign='center';ctx.font='600 14px -apple-system,Roboto,sans-serif';
+  ctx.globalAlpha=.85;ctx.fillText('Cấp '+level,W/2,HUD_Y);ctx.globalAlpha=1;ctx.restore();
+  pearls.forEach(drawPearl);
+  drawCup();
+}
+
+let last=0;
+function loop(ts){
+  const dt=Math.min(0.034,(ts-last)/1000||0);last=ts;
+  update(dt);draw();requestAnimationFrame(loop);
+}
+
+function buildPoster(){
+  const p=document.getElementById('posterCv');
+  p.width=720;p.height=1000;
+  const g=p.getContext('2d');
+  const bg=g.createLinearGradient(0,0,0,1000);
+  bg.addColorStop(0,'#ED1E7A');bg.addColorStop(1,'#B8005A');
+  g.fillStyle=bg;g.fillRect(0,0,720,1000);
+  g.fillStyle='rgba(255,255,255,.7)';
+  for(let i=0;i<26;i++){g.beginPath();g.arc((i*149)%720,(i*223)%1000,2+(i%3),0,7);g.fill();}
+  g.textAlign='center';g.fillStyle='#fff';
+  g.font='italic bold 104px Georgia,serif';
+  g.fillText('PopSip',360,190);
+  g.font='800 40px -apple-system,Roboto,sans-serif';
+  g.fillText('BẮT TRÂN CHÂU',360,262);
+  g.strokeStyle='rgba(255,255,255,.5)';g.lineWidth=2;
+  g.beginPath();g.moveTo(150,320);g.lineTo(570,320);g.stroke();
+  g.font='600 26px -apple-system,Roboto,sans-serif';
+  g.globalAlpha=.85;g.fillText('NGƯỜI CHƠI',360,392);g.globalAlpha=1;
+  g.font='800 46px -apple-system,Roboto,sans-serif';
+  g.fillText(playerName,360,452);
+  g.font='900 190px -apple-system,Roboto,sans-serif';
+  g.fillText(String(score),360,650);
+  g.font='700 30px -apple-system,Roboto,sans-serif';
+  g.globalAlpha=.85;g.fillText('ĐIỂM',360,700);g.globalAlpha=1;
+  g.font='600 28px -apple-system,Roboto,sans-serif';
+  g.fillText('60 giây · Cấp '+level,360,770);
+  g.strokeStyle='rgba(255,255,255,.35)';
+  g.beginPath();g.moveTo(150,836);g.lineTo(570,836);g.stroke();
+  g.font='600 24px -apple-system,Roboto,sans-serif';
+  g.globalAlpha=.9;
+  g.fillText('PopSip · 280 Lạc Long Quân, P.Bình Thới, Q.11',360,890);
+  g.fillText('Ai cao điểm nhất tuần này?',360,930);
+  g.globalAlpha=1;
+  document.getElementById('poster').src=p.toDataURL('image/png');
+}
+
+function gameOver(){
+  state='over';
+  buildPoster();
+  document.getElementById('over').classList.remove('hide');
+}
+
+let dragging=false;
+function moveTo(x){cupX=Math.max(cupW/2+6,Math.min(W-cupW/2-6,x));}
+cv.addEventListener('pointerdown',e=>{dragging=true;moveTo(e.clientX);});
+cv.addEventListener('pointermove',e=>{if(dragging)moveTo(e.clientX);});
+cv.addEventListener('pointerup',()=>dragging=false);
+cv.addEventListener('pointercancel',()=>dragging=false);
+window.addEventListener('keydown',e=>{
+  if(state!=='play')return;
+  if(e.key==='ArrowLeft')moveTo(cupX-26);
+  if(e.key==='ArrowRight')moveTo(cupX+26);
+});
+
+document.getElementById('play').onclick=()=>{
+  playerName=(document.getElementById('name').value||'').trim().slice(0,12)||'Người chơi';
+  document.getElementById('start').classList.add('hide');
+  resize();reset();state='play';
+};
+document.getElementById('again').onclick=()=>{
+  document.getElementById('over').classList.add('hide');
+  reset();state='play';
+};
+
+window.addEventListener('resize',resize);
+resize();
+requestAnimationFrame(loop);
+
+// 飘雪：随机大小/速度/透明度，纯装饰
+(function(){
+  const box=document.getElementById('snow');
+  if(!box)return;
+  for(let i=0;i<24;i++){
+    const s=document.createElement('span');
+    s.className='flake';
+    s.textContent=i%3===0?'❄':'✻';
+    s.style.left=(Math.random()*100).toFixed(1)+'vw';
+    s.style.fontSize=(7+Math.random()*13).toFixed(1)+'px';
+    s.style.opacity=(.22+Math.random()*.4).toFixed(2);
+    s.style.animationDuration=(7+Math.random()*11).toFixed(1)+'s';
+    s.style.animationDelay=(-Math.random()*14).toFixed(1)+'s';
+    box.appendChild(s);
+  }
+})();
+</script>
+</body>
+</html>

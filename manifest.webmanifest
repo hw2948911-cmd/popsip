@@ -1,0 +1,16 @@
+{
+  "name": "PopSip · Bắt Trân Châu",
+  "short_name": "PopSip",
+  "description": "Trò chơi hứng trân châu 60 giây của PopSip — 280 Lạc Long Quân, Q.11",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E8117C",
+  "theme_color": "#E8117C",
+  "lang": "vi",
+  "icons": [
+    { "src": "./popsip-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./popsip-icon.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
