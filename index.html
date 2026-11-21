@@ -282,10 +282,16 @@ function resize(){
 function reset(){
   score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;
   cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupTarget=cupX;
-  // 开局先铺 4 颗，避免前几秒空屏
+  // 开局先铺 3 颗：位置随机、彼此拉开
+  const usedX=[];
   for(let i=0;i<3;i++){
+    let x=40+Math.random()*(W-80), tries=0;
+    while(tries<12 && usedX.some(function(u){return Math.abs(u-x)<W*0.22;})){
+      x=40+Math.random()*(W-80); tries++;
+    }
+    usedX.push(x);
     const kind=kindAt(spawnCount++,0);
-    pearls.push({x:40+Math.random()*(W-80),y:H*0.28+i*60+(Math.random()*16-8),r:kind==='pudding'?14:11,
+    pearls.push({x:x,y:H*(0.20+i*0.13)+(Math.random()*34-17),r:kind==='pudding'?14:11,
       kind:kind,pts:kind==='pudding'?5:(kind==='white'?2:1),v:145});
   }
 }
