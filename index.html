@@ -227,16 +227,16 @@ const cv=document.getElementById('game'),ctx=cv.getContext('2d');
 const CFG={
   dur:90,              // 总时长（60 判定 + 30 隐藏关）
   baseTime:60,         // 判定时间点
-  missAllowed:3,       // 前 60 秒最多漏几个
+  missAllowed:5,       // 前 60 秒最多漏几个
   cupW:68, cupH:86,    // 杯子尺寸
   cupSpeed:1500,       // 杯子最大移速（防刷屏）
   catchBandDiv:4,      // 纵向判定 = 杯高 / 这个数
   catchW:0.40, catchR:0.35, // 横向判定
-  gapMin:0.26, gapBase:1.10, gapLv:0.05, gapTime:0.011, // 出球间隔
+  gapMin:0.30, gapBase:1.10, gapLv:0.045, gapTime:0.010, // 出球间隔
   hiddenGapMin:0.42, hiddenGapMul:1.0,                  // 隐藏关间隔
-  rushBase:1, rushTime:0.013, rushStart:6, rushMax:2.1, // 加速曲线
+  rushBase:1, rushTime:0.011, rushStart:6, rushMax:1.95, // 加速曲线
   hiddenRush:1.05,                                      // 隐藏关加速倍率
-  vBase:96, vLv:14, vRand:38, vCap:460, vCapHidden:465, // 下落速度
+  vBase:90, vLv:12, vRand:34, vCap:400, vCapHidden:465, // 下落速度
   pairChance:0.22, doubleAfter:40, doubleChance:0.30,   // 镜像/双发
   comboStep:10, comboBonus:5,                           // 连击奖励
   pts:{fest:5,pudding:5,white:2,pearl:1},
@@ -843,6 +843,7 @@ async function shareResult(){
 
 /* ===== 音效引擎（Web Audio 合成，无需素材文件） ===== */
 let AC=null, soundOn=true;
+const MASTER=2.4;   // 总音量倍数
 function initAudio(){
   if(AC) { if(AC.state==='suspended') AC.resume(); return; }
   try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC=null; }
@@ -851,25 +852,26 @@ function tone(freq,dur,type,vol,delay){
   if(!AC||!soundOn) return;
   const t0=AC.currentTime+(delay||0);
   const o=AC.createOscillator(), g=AC.createGain();
+  const peak=Math.min(0.95,(vol||0.12)*MASTER);
   o.type=type||'sine'; o.frequency.setValueAtTime(freq,t0);
   g.gain.setValueAtTime(0.0001,t0);
-  g.gain.exponentialRampToValueAtTime(vol||0.12,t0+0.01);
+  g.gain.exponentialRampToValueAtTime(peak,t0+0.012);
   g.gain.exponentialRampToValueAtTime(0.0001,t0+(dur||0.15));
   o.connect(g); g.connect(AC.destination);
   o.start(t0); o.stop(t0+(dur||0.15)+0.02);
 }
-function sfxCatch(){ tone(720,0.08,'triangle',0.09,0); tone(1080,0.06,'sine',0.05,0.02); }
-function sfxCombo(){ [523,659,784,1047].forEach(function(f,i){ tone(f,0.12,'triangle',0.10,i*0.06); }); }
-function sfxMiss(){ tone(180,0.16,'sawtooth',0.06,0); }
+function sfxCatch(){ tone(720,0.08,'triangle',0.13,0); tone(1080,0.06,'sine',0.08,0.02); }
+function sfxCombo(){ [523,659,784,1047].forEach(function(f,i){ tone(f,0.12,'triangle',0.14,i*0.06); }); }
+function sfxMiss(){ tone(180,0.16,'sawtooth',0.10,0); }
 function sfxJingle(){
   // Jingle Bells 前两句
   const n=[[659,0.16],[659,0.16],[659,0.24],[659,0.16],[659,0.16],[659,0.24],
            [659,0.16],[784,0.16],[523,0.22],[587,0.16],[659,0.42]];
-  let t=0; n.forEach(function(x){ tone(x[0],x[1],'triangle',0.11,t); t+=x[1]+0.02; });
+  let t=0; n.forEach(function(x){ tone(x[0],x[1],'triangle',0.15,t); t+=x[1]+0.02; });
 }
 function sfxFanfare(){
   const n=[[523,0.12],[659,0.12],[784,0.12],[1047,0.30],[784,0.12],[1047,0.42]];
-  let t=0; n.forEach(function(x){ tone(x[0],x[1],'triangle',0.12,t); t+=x[1]+0.03; });
+  let t=0; n.forEach(function(x){ tone(x[0],x[1],'triangle',0.16,t); t+=x[1]+0.03; });
 }
 
 function gameOver(){
