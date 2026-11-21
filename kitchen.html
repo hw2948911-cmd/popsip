@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#E8117C">
+<title>PopSip · Pha chế cùng Cá Béo</title>
+<style>
+  :root{--pink:#E8117C;--deep:#7B0337;--gold:#FFD34D;--cream:#FFF3D9}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{font-family:-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    background:radial-gradient(120% 80% at 50% 0%,#F5348F 0%,#D40A66 45%,#8A0A45 100%);
+    color:#fff;overflow:hidden;user-select:none;touch-action:manipulation}
+  #app{position:fixed;inset:0;display:flex;flex-direction:column}
+
+  /* 顶栏 */
+  #hud{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;gap:5px;font-size:10px;min-width:0;overflow:hidden}
+  .pill{background:rgba(0,0,0,.22);border-radius:999px;padding:5px 8px;font-weight:800;white-space:nowrap;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis}
+  .pill b{color:var(--gold);font-size:13px}
+
+  /* 订单卡 */
+  #order{margin:0 12px;min-width:0;background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.35);
+    border-radius:16px;padding:10px 12px;text-align:center}
+  #order .t{font-size:11px;letter-spacing:1px;opacity:.85}
+  #order .vi{font-size:17px;font-weight:900;margin-top:2px;line-height:1.2;word-break:break-word}
+  #order .zh{font-size:12px;opacity:.9;margin-top:1px}
+
+  /* 舞台 */
+  #stage{flex:1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0}
+  #cupWrap{position:relative;width:150px;height:240px}
+  #cup{position:absolute;left:0;right:0;bottom:0;height:205px;overflow:hidden;
+    background:rgba(255,255,255,.14);
+    border:3px solid rgba(255,255,255,.8);
+    border-radius:10px 10px 26px 26px;
+    box-shadow:0 10px 24px rgba(60,0,30,.4)}
+  #layers{position:absolute;inset:0;display:flex;flex-direction:column-reverse}
+  .layer{flex:0 0 22px;transition:height .2s}
+  #lid{position:absolute;left:-8px;right:-8px;top:30px;height:26px;border-radius:12px 12px 6px 6px;
+    background:linear-gradient(180deg,#fff,#ffd9ea);border:2px solid #fff;
+    transform:translateY(-40px);opacity:0;transition:.28s;z-index:5}
+  #lid.on{transform:translateY(0);opacity:1}
+  #stream{position:absolute;left:50%;transform:translateX(-50%);width:14px;height:0;
+    background:linear-gradient(180deg,#C98B5A,#8B5A2B);border-radius:4px;top:-6px;opacity:.95;z-index:4}
+  #hint{position:absolute;left:-40px;right:-40px;bottom:-30px;text-align:center;font-size:13px;opacity:.92;font-weight:700}
+
+  /* 摇一摇能量条 */
+  #shakeBox{display:none;margin:0 0 8px;width:100%}
+  #shakeBox.on{display:block}
+  #ebarWrap{height:22px;border-radius:999px;background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.6);overflow:hidden;position:relative}
+  #ebar{height:100%;width:0%;background:linear-gradient(90deg,#7BE495,#FFD34D);transition:width .08s}
+  #green{position:absolute;top:0;bottom:0;left:70%;right:4%;background:rgba(120,255,160,.22);border-left:2px dashed rgba(255,255,255,.7);border-right:2px dashed rgba(255,255,255,.7)}
+  #shakeTip{text-align:center;font-size:12px;margin-top:6px;opacity:.9}
+
+  /* 原料区 */
+  #panel{padding:8px 12px 16px;min-width:0;overflow:hidden;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.28))}
+  #grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;width:100%;min-width:0;max-height:30vh;overflow-y:auto;overflow-x:hidden;padding-bottom:2px}
+  .ing{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:rgba(255,255,255,.92);color:#8A0A45;border-radius:13px;border:0;
+    padding:10px 4px;font-size:13px;font-weight:800;box-shadow:0 4px 0 rgba(120,0,60,.35);
+    transition:transform .06s}
+  .ing:active{transform:translateY(2px)}
+  .ing.wrong{background:#FFD6D6;color:#A30000;animation:sh .3s}
+  .ing.done{opacity:.45}
+  @keyframes sh{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+
+  /* 操作按钮 */
+  #actions{display:flex;gap:10px;margin-top:10px}
+  .act{flex:1;border:0;border-radius:16px;padding:16px 10px;font-size:17px;font-weight:900;
+    background:linear-gradient(180deg,#FFF3C4,#FFD34D);color:#B0005A;
+    box-shadow:0 6px 0 rgba(150,0,70,.45)}
+  .act:active{transform:translateY(3px);box-shadow:0 3px 0 rgba(150,0,70,.45)}
+  .act.off{opacity:.35}
+
+  /* 遮罩层 */
+  .modal{position:fixed;inset:0;background:rgba(60,0,30,.72);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .mbox{background:linear-gradient(180deg,#fff,#FFE9F3);color:#4A0024;border-radius:22px;padding:22px;width:100%;max-width:340px;text-align:center;box-shadow:0 18px 40px rgba(0,0,0,.4)}
+  .mbox h2{font-size:22px;color:var(--pink);margin-bottom:8px}
+  .mbox p{font-size:14px;line-height:1.6;margin-bottom:6px}
+  .mbox .big{font-size:34px;font-weight:900;color:var(--pink);margin:8px 0}
+  .mbox button{margin-top:14px;width:100%;border:0;border-radius:16px;padding:15px;font-size:17px;font-weight:900;
+    background:linear-gradient(180deg,#FF7EB6,#E8117C);color:#fff;box-shadow:0 6px 0 rgba(120,0,60,.4)}
+  .dnone{display:none}
+  #toast{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%) scale(.8);opacity:0;
+    background:rgba(0,0,0,.75);padding:14px 22px;border-radius:16px;font-size:18px;font-weight:900;
+    pointer-events:none;transition:.18s;z-index:60}
+  #toast.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud">
+    <div class="pill">Màn <b id="lv">1</b>/5</div>
+    <div class="pill">⏱ <b id="tm">0:00</b></div>
+    <div class="pill">⭐ <b id="sc">10</b> · ❌ <b id="ms">0</b>/10</div>
+  </div>
+
+  <div id="order">
+    <div class="t">ĐƠN HÀNG · 订单</div>
+    <div class="vi" id="ovi">—</div>
+    <div class="zh" id="ozh">—</div>
+  </div>
+
+  <div id="stage">
+    <div id="cupWrap">
+      <div id="cup"><div id="layers"></div></div>
+      <div id="lid"></div>
+      <div id="stream"></div>
+      <div id="hint">Chọn nguyên liệu · 选原料</div>
+    </div>
+  </div>
+
+  <div id="panel">
+    <div id="shakeBox">
+      <div id="ebarWrap"><div id="ebar"></div><div id="green"></div></div>
+      <div id="shakeTip">Lắc máy hoặc giữ nút · 摇手机或按住摇</div>
+    </div>
+    <div id="grid"></div>
+    <div id="actions">
+      <button class="act off" id="btnMain">Đậy nắp</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ================= 音效（复用合成引擎） ================= */
+let AC=null;
+function initAudio(){ if(AC){ if(AC.state==='suspended')AC.resume(); return; } try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC=null; } }
+function tone(f,d,type,v,delay){
+  if(!AC) return; const t0=AC.currentTime+(delay||0);
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type=type||'sine'; o.frequency.setValueAtTime(f,t0);
+  g.gain.setValueAtTime(.0001,t0);
+  g.gain.exponentialRampToValueAtTime(v||.1,t0+.01);
+  g.gain.exponentialRampToValueAtTime(.0001,t0+(d||.15));
+  o.connect(g); g.connect(AC.destination); o.start(t0); o.stop(t0+(d||.15)+.02);
+}
+const sfx={
+  ok(){ tone(760,.07,'triangle',.08); tone(1120,.05,'sine',.05,.02); },
+  err(){ tone(150,.22,'sawtooth',.07); },
+  shake(){ tone(220,.05,'square',.03); },
+  pour(){ for(let i=0;i<4;i++) tone(300+i*40,.12,'sine',.05,i*.07); },
+  win(){ [523,659,784,1047].forEach((f,i)=>tone(f,.14,'triangle',.11,i*.09)); },
+  lose(){ [440,330,220].forEach((f,i)=>tone(f,.24,'sawtooth',.08,i*.16)); }
+};
+
+/* ================= 数据 ================= */
+const ICE='冰块';
+const DRINKS=[
+  { vi:'Trà sữa trân châu đường đen', zh:'黑糖珍珠奶茶',
+    items:['茶汤','牛奶','糖','珍珠',ICE], dis:2 },
+  { vi:'Trà ổi hồng', zh:'芭乐果茶',
+    items:['红心芭乐','绿茶汤','糖',ICE], dis:3 },
+  { vi:'Trà thơm chanh dây', zh:'百香果菠萝茶',
+    items:['菠萝','百香果','绿茶汤','糖',ICE], dis:4 },
+  { vi:'Dương chi cam lộ', zh:'杨枝甘露',
+    items:['芒果','西柚','椰奶','白珍珠','糖',ICE], dis:5 },
+  { vi:'Trong xanh và tươi mát', zh:'宫崎骏的夏天',
+    items:['青提','牛奶','蝶豆花','牛奶布丁','糖',ICE], dis:6, drip:true }
+];
+const POOL=['咖啡','抹茶粉','可可粉','红豆','布丁','芋头','榴莲','薄荷','蜂蜜','柚子',
+  '西米','椰果','炼乳','柠檬','草莓','巧克力','焦糖','奶盖','百香果汁','蝶豆花','青提',
+  '芒果','椰奶','茶汤','牛奶','珍珠','白珍珠','绿茶汤','红心芭乐','菠萝','百香果','西柚'];
+
+const COLORS={'茶汤':'#C98B5A','牛奶':'#FFF7EC','糖':'#F6E7C9','珍珠':'#3B2218','冰块':'#DFF6FF',
+ '红心芭乐':'#F0668A','绿茶汤':'#B7D98A','菠萝':'#FFD54F','百香果':'#FFB347',
+ '芒果':'#FFC107','西柚':'#FF8A80','椰奶':'#FFFDF5','白珍珠':'#F5E9DA',
+ '青提':'#C8E06A','蝶豆花':'#5B7FE0','牛奶布丁':'#FFF1D6','奶盖':'#FFF9EC'};
+
+/* ================= 状态 ================= */
+const $=s=>document.querySelector(s);
+let lv=0, score=10, miss=0, startAt=0, timerId=null;
+let need=[], added=[], phase='add';   // add | lid | shake | pour | drip | done
+let energy=0, shaking=false, lockUntil=0;
+
+/* ================= 工具 ================= */
+function beep(){}
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('on'),900);
+}
+function fmt(ms){
+  const s=Math.floor(ms/1000); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+}
+function updateHud(){
+  $('#lv').textContent=lv+1; $('#sc').textContent=score; $('#ms').textContent=miss;
+  $('#tm').textContent=fmt(Date.now()-startAt);
+}
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+/* ================= 关卡 ================= */
+function startLevel(){
+  const d=DRINKS[lv];
+  need=d.items.slice();
+  added=[]; phase='add'; energy=0; lockUntil=0; dripPts=0;
+  $('#ovi').textContent=d.vi; $('#ozh').textContent=d.zh;
+  $('#layers').innerHTML='';
+  $('#lid').classList.remove('on');
+  $('#stream').style.height='0';
+  $('#shakeBox').classList.remove('on');
+  $('#btnMain').textContent='Đậy nắp'; $('#btnMain').classList.add('off');
+  $('#hint').textContent='Chọn nguyên liệu · 选原料';
+
+  // 选项 = 正确 + 干扰
+  const wrongs=shuffle(POOL.filter(x=>d.items.indexOf(x)<0)).slice(0,d.dis);
+  const opts=shuffle(d.items.concat(wrongs));
+
+  const g=$('#grid'); g.innerHTML='';
+  opts.forEach(name=>{
+    const b=document.createElement('button');
+    b.className='ing'; b.textContent=name; b.dataset.name=name;
+    b.onclick=()=>tapIng(b,name);
+    g.appendChild(b);
+  });
+  updateHud();
+}
+
+function tapIng(btn,name){
+  if(phase!=='add') return;
+  if(Date.now()<lockUntil) return;
+  const d=DRINKS[lv];
+
+  if(d.items.indexOf(name)<0){
+    // 错误：扣分 + 卡 2 秒 + 回退最后一次
+    score-=1; miss+=1;
+    btn.classList.add('wrong');
+    sfx.err(); toast('❌ Sai nguyên liệu');
+    lockUntil=Date.now()+2000;
+    if(miss>=10){ endGame(false); return; }
+    // 回退最后一次加的料
+    const last=added.pop();
+    if(last){
+      const layers=$('#layers');
+      if(layers.lastElementChild) layers.removeChild(layers.lastElementChild);
+      const back=document.querySelector('.ing.done[data-name="'+last+'"]');
+      if(back) back.classList.remove('done');
+    }
+    setTimeout(()=>btn.classList.remove('wrong'),320);
+    updateHud();
+    return;
+  }
+
+  // 正确
+  if(added.indexOf(name)>=0) return;   // 已加过
+  added.push(name);
+  btn.classList.add('done');
+  addLayer(name);
+  sfx.ok();
+  const left=d.items.filter(x=>added.indexOf(x)<0).length;
+  if(left===0){
+    phase='lid';
+    $('#btnMain').classList.remove('off');
+    $('#btnMain').textContent='Đậy nắp';
+    $('#hint').textContent='Đậy nắp lại · 盖上盖子';
+  }else{
+    $('#hint').textContent='Còn '+left+' nguyên liệu · 还差 '+left+' 样';
+  }
+  updateHud();
+}
+
+function addLayer(name){
+  const el=document.createElement('div');
+  el.className='layer';
+  el.style.height='18px';
+  el.style.background=COLORS[name]||'#fff';
+  el.style.opacity=.95;
+  el.style.borderTop='1px solid rgba(255,255,255,.5)';
+  $('#layers').appendChild(el);
+}
+
+/* ================= 摇一摇 ================= */
+let motionOn=false;
+function enableMotion(){
+  if(motionOn) return; motionOn=true;
+  window.addEventListener('devicemotion',e=>{
+    if(phase!=='shake') return;
+    const a=e.accelerationIncludingGravity||{};
+    const m=Math.abs(a.x||0)+Math.abs(a.y||0)+Math.abs(a.z||0);
+    if(m>24) addEnergy(7);
+  });
+}
+function addEnergy(v){
+  if(phase!=='shake') return;
+  energy=Math.min(105,energy+v);
+  $('#ebar').style.width=Math.min(100,energy)+'%';
+  if(energy>=100){ finishShake(); }
+}
+function startShake(){
+  phase='shake'; energy=0;
+  $('#ebar').style.width='0%';
+  $('#shakeBox').classList.add('on');
+  $('#hint').textContent='Lắc đều tay · 摇匀';
+  $('#btnMain').classList.add('off');
+  enableMotion();
+  // 兜底：按住按钮摇
+  const b=$('#btnMain');
+  b.textContent='Giữ để lắc';
+  let hold=null;
+  const down=(e)=>{ e.preventDefault(); b.classList.remove('off'); hold=setInterval(()=>addEnergy(4.2),80); };
+  const up=()=>{ if(hold){clearInterval(hold); hold=null;} };
+  b.onmousedown=down; b.onmouseup=up; b.onmouseleave=up;
+  b.ontouchstart=down; b.ontouchend=up; b.ontouchcancel=up;
+}
+function finishShake(){
+  if(phase!=='shake') return;
+  phase='pour';
+  $('#shakeBox').classList.remove('on');
+  sfx.win(); toast('✨ Lắc đều rồi!');
+  $('#hint').textContent='Đổ ra ly · 装杯';
+  const b=$('#btnMain');
+  b.onmousedown=null;b.onmouseup=null;b.onmouseleave=null;b.ontouchstart=null;b.ontouchend=null;b.ontouchcancel=null;
+  b.classList.remove('off'); b.textContent='Rót ra ly';
+}
+
+/* ================= 装杯 / 抹壁 / 完成 ================= */
+
+function addCream(n){
+  const el=document.createElement('div');
+  el.style.cssText='position:absolute;left:6px;right:6px;top:'+(14+n*18)+'px;height:12px;border-radius:8px;'+
+    'background:linear-gradient(90deg,rgba(255,255,255,.95),rgba(255,249,236,.85));opacity:.9;pointer-events:none;z-index:6;';
+  $('#cup').appendChild(el);
+}
+
+function doPour(){
+  phase='pour';
+  sfx.pour();
+  const st=$('#stream'); st.style.height='60px';
+  const lid=$('#lid'); lid.classList.remove('on');
+  $('#layers').innerHTML='';
+  const base=document.createElement('div');
+  base.className='layer'; base.style.height='120px';
+  base.style.background='linear-gradient(180deg,#F3D6B0,#C98B5A)';
+  $('#layers').appendChild(base);
+  setTimeout(()=>{
+    st.style.height='0';
+    const d=DRINKS[lv];
+    if(d.drip){
+      phase='drip';
+      $('#hint').textContent='Nhấn 2 lần lên thành ly · 杯壁按 2 下抹奶盖';
+      $('#btnMain').classList.add('off');
+    }else{
+      finishLevel();
+    }
+  },700);
+}
+
+/* 划圈抹奶盖 */
+let dripPts=0;
+function onMove(e){
+  if(phase!=='drip') return;
+  dripPts+=1;
+  if(dripPts>40){ phase='pour'; finishLevel(); }
+}
+
+function finishLevel(){
+  phase='done';
+  score+=10;
+  updateHud();
+  sfx.win();
+  toast('✅ Xong 1 ly!');
+  setTimeout(()=>{
+    lv+=1;
+    if(lv>=DRINKS.length){ endGame(true); } else { startLevel(); }
+  },900);
+}
+
+/* ================= 结束 ================= */
+function endGame(win){
+  clearInterval(timerId);
+  const total=Date.now()-startAt;
+  const box=document.createElement('div');
+  box.className='modal';
+  box.innerHTML='<div class="mbox">'+
+    '<h2>'+(win?'🎉 Hoàn thành!':'😵 Thua rồi')+'</h2>'+
+    '<p>'+(win?'Bạn pha xong 5 ly':'Sai quá 10 lần')+'</p>'+
+    '<div class="big">'+fmt(total)+'</div>'+
+    '<p>⭐ '+score+' điểm · ❌ '+miss+' lỗi</p>'+
+    '<button id="again">Chơi lại</button>'+
+  '</div>';
+  document.body.appendChild(box);
+  win?sfx.win():sfx.lose();
+  box.querySelector('#again').onclick=()=>{ box.remove(); reset(); };
+}
+
+function reset(){
+  lv=0; score=10; miss=0; startAt=Date.now();
+  clearInterval(timerId);
+  timerId=setInterval(updateHud,250);
+  startLevel();
+}
+
+/* ================= 主按钮分发 ================= */
+$('#btnMain').onclick=()=>{
+  initAudio();
+  if(Date.now()<lockUntil) return;
+  if(phase==='add'){ return; }
+  if(phase==='lid'){ $('#lid').classList.add('on'); $('#btnMain').classList.add('off'); startShake(); return; }
+  if(phase==='shake'){ return; }               // 摇的阶段用按住
+  if(phase==='pour' && $('#hint').textContent.indexOf('Đổ ra')>=0){ doPour(); return; }
+  if(phase==='drip'){ drainDrip(); return; }
+};
+function drainDrip(){ /* 点按也能完成抹壁 */
+  if(phase!=='drip') return;
+  dripPts+=1;
+  if(dripPts>40){ phase='pour'; finishLevel(); }
+}
+
+/* 奶盖挂壁：点杯壁 2 次即可 */
+window.addEventListener('pointerdown',e=>{
+  if(phase!=='drip') return;
+  const r=$('#cupWrap').getBoundingClientRect();
+  const inside=(e.clientX>r.left-24 && e.clientX<r.right+24 && e.clientY>r.top-24 && e.clientY<r.bottom+24);
+  if(!inside) return;
+  dripPts+=1;
+  addCream(dripPts);
+  sfx.ok();
+  toast('🍦 '+dripPts+'/2');
+  if(dripPts>=2){ phase='splash'; setTimeout(finishLevel, 380); }
+}, true);
+
+/* ================= 启动 ================= */
+document.body.addEventListener('pointerdown',initAudio,{once:true});
+reset();
+</script>
+</body>
+</html>
