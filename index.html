@@ -285,8 +285,8 @@ function reset(){
   // 开局先铺 4 颗，避免前几秒空屏
   for(let i=0;i<3;i++){
     const kind=kindAt(spawnCount++,0);
-    pearls.push({x:40+((i*173)%(W-80)),y:-30-i*150,r:kind==='pudding'?14:11,
-      kind:kind,pts:kind==='pudding'?5:(kind==='white'?2:1),v:260});
+    pearls.push({x:40+((i*173)%(W-80)),y:H*0.28+i*60,r:kind==='pudding'?14:11,
+      kind:kind,pts:kind==='pudding'?5:(kind==='white'?2:1),v:145});
   }
 }
 
