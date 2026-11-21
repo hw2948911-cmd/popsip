@@ -54,6 +54,7 @@ background:
   max-width:88vw;padding:14px 22px;border-radius:18px;background:rgba(30,0,18,.94);color:#fff;
   font-size:15px;font-weight:800;line-height:1.5;text-align:center;box-shadow:0 12px 34px rgba(0,0,0,.45);
   border:2px solid rgba(255,233,168,.7)}
+.pid{font-size:15px;font-weight:900;color:#FFE9A8;letter-spacing:1px;margin-top:-2px}
 .dice{font-size:13px;font-weight:700;color:#FFE9A8;opacity:.9;margin-top:-4px;cursor:pointer}
 .promo{margin-top:4px;font-size:14px;font-weight:700;color:#FFE9A8;line-height:1.65;letter-spacing:.3px}
 .logo{font-family:Georgia,"Times New Roman",serif;font-style:italic;
@@ -181,7 +182,8 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
 <div id="start" class="panel">
   <div class="logo" style="font-size:56px">PopSip</div>
   <h1>Bắt Trân Châu</h1>
-  <input id="name" maxlength="12" placeholder="Tên của bạn">
+  <input id="name" maxlength="12" placeholder="Biệt danh của bạn">
+  <div class="pid" id="pid">ID: …</div>
   <div class="dice" id="dice">🎲 Đổi tên khác</div>
   <button class="btn" id="play">Bắt đầu</button>
   <div class="challenge hide" id="challenge"></div>
@@ -866,8 +868,10 @@ const NAME_A=['Cao Thủ','Thần Cú','Khách VIP','Trân Châu','Sữa Đá','
 const NAME_B=['Vui Vẻ','Bí Ẩn','May Mắn','Tốc Độ','Hạnh Phúc','Thần Thánh','Sành Điệu','Nhiệt Tình'];
 function randomName(){
   const a=NAME_A[Math.floor(Math.random()*NAME_A.length)];
-  const b=Math.random()<0.5?NAME_B[Math.floor(Math.random()*NAME_B.length)]:String(Math.floor(10+Math.random()*90));
-  return (a+' '+b).slice(0,12);
+  const b=Math.random()<0.6
+    ? String(Math.floor(1000+Math.random()*9000))       // 60% 用 4 位数字，方便店员念
+    : NAME_B[Math.floor(Math.random()*NAME_B.length)];
+  return (a+' '+b).slice(0,14);
 }
 // ── 裂变：挑战 / 邀请 ──
 (function(){
@@ -884,10 +888,32 @@ function randomName(){
   }catch(e){}
 })();
 const nameEl=document.getElementById('name');
-nameEl.value=randomName();
-document.getElementById('dice').onclick=()=>{ nameEl.focus(); nameEl.value=randomName(); };
+nameEl.value=randomName().replace(/[0-9]/g,'').trim();
+let PLAYER_ID='';
+const pidEl=document.getElementById('pid');
+(function(){
+  const cache=JSON.parse(localStorage.getItem('popsip_pid')||'null');
+  function fallback(){
+    if(cache&&cache.num) PLAYER_ID=cache.num;
+    if(!PLAYER_ID){ PLAYER_ID=Math.floor(1000+Math.random()*9000); }
+    if(pidEl) pidEl.textContent='ID: '+PLAYER_ID;
+  }
+  fetch('https://popsip-rank.hw2948911.workers.dev/assign')
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d&&d.ok){
+        if(cache&&cache.week===d.week){ PLAYER_ID=cache.num; }
+        else { PLAYER_ID=d.num; localStorage.setItem('popsip_pid', JSON.stringify({week:d.week,num:d.num})); }
+      }
+      if(!PLAYER_ID) fallback();
+      if(pidEl) pidEl.textContent='ID: '+PLAYER_ID;
+    })
+    .catch(fallback);
+})();
+document.getElementById('dice').onclick=()=>{ nameEl.focus(); nameEl.value=randomName().replace(/[0-9]/g,'').trim(); };
 document.getElementById('play').onclick=()=>{
-  playerName=(document.getElementById('name').value||'').trim().slice(0,12)||randomName();
+  const nick=(document.getElementById('name').value||'').trim().replace(/[0-9]/g,'').slice(0,12)||randomName();
+  playerName=(nick+' '+PLAYER_ID).slice(0,20);
   document.getElementById('start').classList.add('hide');
   document.getElementById('reward').classList.add('hide');
   resize();reset();state='play';
