@@ -221,6 +221,7 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
   
   <button class="btn ghost small" id="again">Chơi lại</button>
 </div>
+<script src="./confetti.min.js"></script>
 <script>
 const cv=document.getElementById('game'),ctx=cv.getContext('2d');
 // ===== 可调参数（只改这里就够了）=====
@@ -416,6 +417,33 @@ function drawBursts(){
     const b=bursts[i], k=b.t/0.5;
     ctx.save();
     ctx.globalAlpha=Math.max(0,1-k);
+    if(!hidden){
+      // 前 60 秒：白色水花溅起
+      ctx.fillStyle='#fff';
+      for(let j=0;j<5;j++){
+        const a=-Math.PI/2+(j-2)*0.42;
+        const d=8+k*30;
+        ctx.beginPath();
+        ctx.arc(b.x+Math.cos(a)*d, b.y+Math.sin(a)*d+k*10, 2.6*(1-k)+1, 0, 7);
+        ctx.fill();
+      }
+    }else if(typeof confetti!=='function'){
+      // 隐藏关兜底：库没加载时用手绘金色五角星
+      ctx.fillStyle='#FFD34D';
+      for(let j=0;j<5;j++){
+        const a=-Math.PI/2+(j-2)*0.42;
+        const d=8+k*30;
+        const sx=b.x+Math.cos(a)*d, sy=b.y+Math.sin(a)*d+k*10;
+        const rr=(3.4*(1-k)+1.2)*1.6;
+        ctx.beginPath();
+        for(let v=0;v<5;v++){
+          const ang=-Math.PI/2+v*Math.PI*2/5, ang2=ang+Math.PI/5;
+          ctx.lineTo(sx+Math.cos(ang)*rr, sy+Math.sin(ang)*rr);
+          ctx.lineTo(sx+Math.cos(ang2)*rr*0.45, sy+Math.sin(ang2)*rr*0.45);
+        }
+        ctx.closePath();ctx.fill();
+      }
+    }
 
     // 飘分
     ctx.fillStyle='#FFE9A8';
@@ -1052,7 +1080,6 @@ requestAnimationFrame(loop);
 })();
 </script>
 
-<script src="./confetti.min.js"></script>
 <script>
 /* ===== PopSip 排行榜：主按钮 = 提交+看榜（最重要） ===== */
 (function(){
