@@ -329,7 +329,7 @@ function update(dt){
   if(bannerT>0)bannerT=Math.max(0,bannerT-dt);
   if(time>=BASE_TIME&&!hidden){
     if(misses>MISS_ALLOWED){gameOver();return;}
-    hidden=true;bannerT=2.8;
+    hidden=true;bannerT=2.8;sfxJingle();
   }
   if(time>=DUR){gameOver();return;}
   level=Math.max(level,Math.min(16,1+Math.floor(score/10)));
@@ -362,9 +362,9 @@ function update(dt){
     const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/CFG.catchBandDiv;
 
     if(inZone&&Math.abs(p.x-cupX)<cupW*CFG.catchW+p.r*CFG.catchR){
-      score+=p.pts;shake=9;combo++;if(combo>maxCombo)maxCombo=combo;
+      score+=p.pts;shake=9;combo++;if(combo>maxCombo)maxCombo=combo;sfxCatch();
       bursts.push({x:p.x,y:cupY,t:0,pts:p.pts,kind:p.kind});
-      if(combo%CFG.comboStep===0){ score+=CFG.comboBonus; shake=14; bursts.push({x:W/2,y:cupY-60,t:0,pts:5,bonus:true}); }
+      if(combo%CFG.comboStep===0){ score+=CFG.comboBonus; shake=14; sfxCombo(); bursts.push({x:W/2,y:cupY-60,t:0,pts:5,bonus:true}); }
       pearls.splice(i,1);
       continue;
     }
@@ -840,8 +840,41 @@ async function shareResult(){
   document.getElementById('card').classList.remove('hide');
 }
 
+
+/* ===== 音效引擎（Web Audio 合成，无需素材文件） ===== */
+let AC=null, soundOn=true;
+function initAudio(){
+  if(AC) { if(AC.state==='suspended') AC.resume(); return; }
+  try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC=null; }
+}
+function tone(freq,dur,type,vol,delay){
+  if(!AC||!soundOn) return;
+  const t0=AC.currentTime+(delay||0);
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'sine'; o.frequency.setValueAtTime(freq,t0);
+  g.gain.setValueAtTime(0.0001,t0);
+  g.gain.exponentialRampToValueAtTime(vol||0.12,t0+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001,t0+(dur||0.15));
+  o.connect(g); g.connect(AC.destination);
+  o.start(t0); o.stop(t0+(dur||0.15)+0.02);
+}
+function sfxCatch(){ tone(720,0.08,'triangle',0.09,0); tone(1080,0.06,'sine',0.05,0.02); }
+function sfxCombo(){ [523,659,784,1047].forEach(function(f,i){ tone(f,0.12,'triangle',0.10,i*0.06); }); }
+function sfxMiss(){ tone(180,0.16,'sawtooth',0.06,0); }
+function sfxJingle(){
+  // Jingle Bells 前两句
+  const n=[[659,0.16],[659,0.16],[659,0.24],[659,0.16],[659,0.16],[659,0.24],
+           [659,0.16],[784,0.16],[523,0.22],[587,0.16],[659,0.42]];
+  let t=0; n.forEach(function(x){ tone(x[0],x[1],'triangle',0.11,t); t+=x[1]+0.02; });
+}
+function sfxFanfare(){
+  const n=[[523,0.12],[659,0.12],[784,0.12],[1047,0.30],[784,0.12],[1047,0.42]];
+  let t=0; n.forEach(function(x){ tone(x[0],x[1],'triangle',0.12,t); t+=x[1]+0.03; });
+}
+
 function gameOver(){
   state='over';
+  sfxFanfare();
   buildPoster();
   if(INAPP){ const ia=document.getElementById('inapp'); if(ia) ia.classList.remove('hide'); }
   const rw=document.getElementById('reward');
@@ -918,6 +951,7 @@ const pidEl=document.getElementById('pid');
 })();
 document.getElementById('dice').onclick=()=>{ nameEl.focus(); nameEl.value=randomName().replace(/[0-9]/g,'').trim(); };
 document.getElementById('play').onclick=()=>{
+  initAudio();
   const nick=(document.getElementById('name').value||'').trim().replace(/[0-9]/g,'').slice(0,12)||randomName();
   playerName=(nick+' '+PLAYER_ID).slice(0,20);
   document.getElementById('start').classList.add('hide');
