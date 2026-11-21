@@ -926,12 +926,10 @@ requestAnimationFrame(loop);
 </script>
 
 <script>
-/* ===== PopSip 排行榜接入（由 Worker 提供接口）===== */
+/* ===== PopSip 排行榜：主按钮 = 提交+看榜（最重要） ===== */
 (function(){
-  // ↓↓↓ 部署完 Worker 后，把地址填进来，例如 'https://popsip-rank.xxx.workers.dev'
   const API_BASE = 'https://popsip-rank.hw2948911.workers.dev';
-
-  if(!API_BASE) return;   // 没配置就不显示任何东西
+  if(!API_BASE) return;
 
   function el(tag, cls, txt){
     const e=document.createElement(tag);
@@ -940,72 +938,69 @@ requestAnimationFrame(loop);
     return e;
   }
 
-  // 结果页：在「分享 / 加群」下面加一行小按钮
   const acts=document.querySelector('#over .acts');
-  if(acts){
-    const row=el('div','acts rankrow');
-    row.style.marginTop='6px';
-    const bSubmit=el('button','btn small','Gửi điểm');
-    const bBoard=el('button','btn ghost small','Xếp hạng');
-    row.appendChild(bSubmit); row.appendChild(bBoard);
-    acts.parentNode.insertBefore(row, acts.nextSibling);
+  if(!acts) return;
 
-    bSubmit.onclick=async function(){
-      bSubmit.disabled=true;
-      try{
-        const r=await fetch(API_BASE+'/submit',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            name: (typeof playerName==='string'?playerName:'Người chơi'),
-            score: (typeof score==='number'?score:0),
-            combo: (typeof maxCombo==='number'?maxCombo:0),
-            hidden: (typeof hidden==='boolean'?hidden:false),
-            dev: (navigator.userAgent||'').slice(0,24)
-          })
-        });
-        const d=await r.json();
-        if(d&&d.ok){
-          if(d.kept===false) alert('Điểm hôm nay của bạn đã cao hơn rồi 👍');
-          else alert('Đã gửi! Hạng hiện tại: #'+(d.rank||'-'));
-        }else{
-          alert('Gửi không thành công, thử lại sau nhé');
-        }
-      }catch(e){
-        alert('Không kết nối được máy chủ');
-      }
-      bSubmit.disabled=false;
-    };
+  // 次级按钮缩小
+  const st=el('style');
+  st.textContent='#over .acts{max-width:330px}#over .acts .btn{padding:11px 8px;font-size:14px;opacity:.92}'+
+                 '#over .rankmain{margin-top:4px}';
+  document.head.appendChild(st);
 
-    bBoard.onclick=async function(){
-      let html='<div class="mtitle">🏆 BẢNG XẾP HẠNG HÔM NAY</div><ol class="msteps">';
-      try{
-        const r=await fetch(API_BASE+'/board?name='+encodeURIComponent(typeof playerName==='string'?playerName:''));
-        const d=await r.json();
-        if(d.top&&d.top.length){
-          d.top.forEach(function(t){
-            html+='<li>'+t.name+' — <b>'+t.score+'</b> điểm · combo '+t.combo+'</li>';
-          });
-        }else{
-          html+='<li>Hôm nay chưa có ai ghi điểm</li>';
-        }
-        html+='</ol>';
-        if(d.me) html+='<div class="mtitle" style="font-size:15px">Bạn: hạng #'+d.me.rank+' / '+d.me.total+'</div>';
-        else html+='<div class="mtitle" style="font-size:15px">Bạn chưa gửi điểm hôm nay</div>';
-      }catch(e){
-        html='<div class="mtitle">Không tải được bảng xếp hạng</div>';
-      }
-      const box=el('div','modal');
-      const inner=el('div','mbox');
-      inner.innerHTML=html;
-      const close=el('button','btn','Đóng');
-      close.onclick=function(){ document.body.removeChild(box); };
-      inner.appendChild(close);
-      box.appendChild(inner);
-      box.onclick=function(e){ if(e.target===box) document.body.removeChild(box); };
-      document.body.appendChild(box);
-    };
+  // 主按钮：提交 + 弹榜
+  const main=el('button','btn rankmain','🏆 Gửi điểm & Xếp hạng');
+  main.style.width='100%'; main.style.maxWidth='330px';
+  main.style.padding='20px 12px'; main.style.fontSize='20px'; main.style.fontWeight='900';
+  main.style.boxShadow='0 12px 30px rgba(60,0,30,.5)';
+  main.style.background='linear-gradient(180deg,#FFF3C4,#FFD34D)';
+  main.style.color='#B0005A';
+  main.style.border='2px solid rgba(255,255,255,.7)';
+  acts.parentNode.insertBefore(main, acts);
+
+  function openBoard(d){
+    let html='<div class="mtitle">🏆 BẢNG XẾP HẠNG HÔM NAY</div><ol class="msteps">';
+    if(d && d.top && d.top.length){
+      d.top.forEach(function(t){ html+='<li>'+t.name+' — <b>'+t.score+'</b> điểm · combo '+t.combo+'</li>'; });
+    }else{
+      html+='<li>Hôm nay chưa có ai ghi điểm</li>';
+    }
+    html+='</ol>';
+    if(d && d.me) html+='<div class="mtitle" style="font-size:15px">Bạn: hạng #'+d.me.rank+' / '+d.me.total+'</div>';
+    else html+='<div class="mtitle" style="font-size:15px">Bạn chưa có điểm hôm nay</div>';
+
+    const box=el('div','modal'); const inner=el('div','mbox');
+    inner.innerHTML=html;
+    const close=el('button','btn','Đóng');
+    close.onclick=function(){ document.body.removeChild(box); };
+    inner.appendChild(close); box.appendChild(inner);
+    box.onclick=function(e){ if(e.target===box) document.body.removeChild(box); };
+    document.body.appendChild(box);
   }
+
+  main.onclick=async function(){
+    if(main.disabled) return;
+    main.disabled=true; main.textContent='⏳ Đang gửi…';
+    const name=(typeof playerName==='string'&&playerName)?playerName:'Người chơi';
+    try{
+      await fetch(API_BASE+'/submit',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          name:name,
+          score:(typeof score==='number'?score:0),
+          combo:(typeof maxCombo==='number'?maxCombo:0),
+          hidden:(typeof hidden==='boolean'?hidden:false),
+          dev:(navigator.userAgent||'').slice(0,24)
+        })
+      });
+    }catch(e){}
+    let d=null;
+    try{
+      const r=await fetch(API_BASE+'/board?name='+encodeURIComponent(name));
+      d=await r.json();
+    }catch(e){}
+    openBoard(d);
+    main.disabled=false; main.textContent='🏆 Gửi điểm & Xếp hạng';
+  };
 })();
 </script>
 </body>
