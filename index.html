@@ -987,7 +987,8 @@ function xmasCycle(){
   if(!xmasOn||!AC) return;
   let t=0;
   for(const [n,b] of XMAS){
-    tone(XMAS_NOTE[n], Math.max(0.09,b*XMAS_BEAT*0.92), 'triangle', 0.085, t);
+    tone(XMAS_NOTE[n], Math.max(0.11,b*XMAS_BEAT*0.95), 'triangle', 0.155, t);
+    tone(XMAS_NOTE[n]/2, Math.max(0.11,b*XMAS_BEAT*0.95), 'sine', 0.055, t);   // 低八度垫底，更饱满
     t += b*XMAS_BEAT;
   }
   xmasTimer=setTimeout(xmasCycle, t*1000+40);
