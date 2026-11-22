@@ -476,7 +476,7 @@ function update(dt){
     const vy=p.v*sp;
     if(p.up){
       p.y-=BOUNCE_V*sp*dt;                        // 回弹慢速，按开局速度往上飘
-      if(p.y<H*0.65){ p.up=false; p.bounced=true; }   // 弹回约杯口上方，高度是原来的 1/2
+      if(p.y<H*0.48){ p.up=false; p.bounced=true; }   // 弹起高度约为上一版的 2 倍（杯口往上约 270px）
     }else if(p.bounced){
       p.y+=BOUNCE_V*sp*dt;                        // 回弹之后的下落也按开局速度，慢慢落
     }else{
@@ -525,7 +525,7 @@ function update(dt){
       if(p.kind==='pudding' && !p.bounced){
         const dir=Math.random()<0.5?-1:1;
         p.bounced=true; p.up=true;
-        p.vx=dir*cw*1.2;        // 弹起时随机横向漂移，全程大约一个杯身宽
+        p.vx=dir*cw*1.1;        // 弹起时随机横向漂移，全程大约一个杯身宽
         p.burst=0;
         sparks.push({x:p.x,y:cupY,t:0});
         continue;
