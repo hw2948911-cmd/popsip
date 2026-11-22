@@ -248,6 +248,7 @@ const CFG={
 const PINK='#E0006B',RED='#D62828',DUR=CFG.dur;
 const gapY=96;   // 上方留白：避免新珠叠在旧珠上
 let waterfalls=[];
+let sparks=[];
 
 const ZALO_URL='https://zalo.me/g/ozu0yzjsdpgmctvtnmwy';  // 官方 Zalo 群
 const SITE='https://hw2948911-cmd.github.io/popsip/';
@@ -294,6 +295,7 @@ function pickKind(){
   const fr=unlockedFruits();
   const stoneOn = hiddenCount>=5;
   if(stoneOn && Math.random()<0.08) return 'stone';
+  if(hiddenCount>=1 && Math.random()<0.06) return 'ice';
   const frChance = Math.min(0.42, fr.length*0.11);
   if(fr.length && Math.random()<frChance) return fr[Math.floor(Math.random()*fr.length)];
   const r=Math.random();
@@ -304,6 +306,7 @@ function pickKind(){
 function itemPts(kind){
   if(hidden) return hiddenPts;
   if(kind==='stone') return 0;
+  if(kind==='ice') return 1;
   if(kind==='pudding') return 2;
   if(kind==='white'||kind==='pearl') return 1;
   const f=fruitPts(kind); if(f) return f;
@@ -311,6 +314,7 @@ function itemPts(kind){
 }
 function itemRad(kind){
   if(kind==='stone') return 13;
+  if(kind==='ice') return 14;
   if(kind==='pudding') return 14;
   if(kind==='white'||kind==='pearl') return 11;
   if(hidden) return 18;
@@ -329,7 +333,7 @@ function resize(){
 
 function reset(){
   score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;pairUsed=false;cw=cupW;
-  hp=HP_MAX; hiddenCount=0; hiddenT=0; dyingT=0; windT=0; windWarn=0; windCd=8+Math.random()*4; blizCd=24+Math.random()*8; fogT=0;
+  hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; windT=0; windWarn=0; windCd=8+Math.random()*4; blizCd=24+Math.random()*8; fogT=0;
   cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;
   for(let i=0;i<3;i++){
     const k=pickKind();
@@ -370,125 +374,154 @@ function update(dt){
   updateWater(dt);
   if(bannerT>0)bannerT=Math.max(0,bannerT-dt);
 
-  // 隐藏关计时
+  // 隐藏关
   if(hidden){
     hiddenT-=dt;
     if(hiddenT<=0){
       hidden=false; hiddenCount++; cw=cupCwNormal(); stopXmas();
-      bannerT=2.2;
-      blizCd=Math.max(8,blizCd-4);
+      bannerT=2.2; blizCd=Math.max(8,blizCd-4);
     }
   }else{
-    if(score>=GATES[Math.min(GATES.length-1,hiddenCount)] && hiddenCount<GATES.length){
+    if(hiddenCount<GATES.length && score>=GATES[hiddenCount]){
       hidden=true; hiddenT=10; hiddenPts=2*maxItemPts(); cw=56; bannerT=2.8; sfxJingle();
     }
   }
 
-  // 级数（只影响出球密度，慢爬升）
-  level=Math.max(level,Math.min(16,1+Math.floor(time/45)));
-  let gap=Math.max(0.52, 1.05 - Math.min(0.5,time*0.0016) - level*0.012);
-  if(hidden)gap=0.46;
+  // 速度：缓慢上升、早封顶（放松感）
+  const baseV = 110 + Math.min(190, time*0.75);       // 110 → 300，约 4 分钟后封顶
+  const burst = (windT>0||fogT>0)?1.12:1;             // 机制期只快 12%
+  const vNow = Math.min(hidden?520:330, baseV*burst*(hidden?1.25:1));
+
+  // 出球间隔：越到后面略密，但保持呼吸感
+  let gap = Math.max(0.62, 1.02 - Math.min(0.30, time*0.0012));
+  if(hidden) gap = 0.52;
 
   // 风
   if(hiddenCount>=2 && !hidden){
-    if(windT>0){
-      windT-=dt;
-      if(windT<=0){ windCd=8+Math.random()*4; }
-    }else if(windWarn>0){
-      windWarn-=dt;
-      if(windWarn<=0){ startGust(); }
-    }else{
-      windCd-=dt;
-      if(windCd<=0){ windWarn=0.6; }
-    }
+    if(windT>0){ windT-=dt; if(windT<=0) windCd=9+Math.random()*5; }
+    else if(windWarn>0){ windWarn-=dt; if(windWarn<=0) startGust(); }
+    else { windCd-=dt; if(windCd<=0) windWarn=0.7; }
   }
-
   // 暴风雪
   if(hiddenCount>=3 && !hidden){
-    if(fogT>0){
-      fogT-=dt;
-      if(fogT<=0) freezeSome();
-    }else{
-      blizCd-=dt;
-      if(blizCd<=0){ fogT=1.0; blizCd=24+Math.random()*10; }
-    }
+    if(fogT>0){ fogT-=dt; if(fogT<=0) freezeSome(); }
+    else { blizCd-=dt; if(blizCd<=0){ fogT=1.0; blizCd=26+Math.random()*12; } }
   }
 
-  const cupMaxV=CFG.cupSpeed;
-  const dxc=cupTarget-cupX;
-  const step=cupMaxV*dt;
+  // 杯子
+  const step=CFG.cupSpeed*dt, dxc=cupTarget-cupX;
   cupX += Math.abs(dxc)<=step ? dxc : (dxc>0?step:-step);
   for(let bi=bursts.length-1;bi>=0;bi--){ bursts[bi].t+=dt; if(bursts[bi].t>0.5)bursts.splice(bi,1); }
 
   spawnT-=dt;
   if(spawnT<=0){
-    if(spawnPearl()){ spawnT=gap; }
-    else{ spawnT=0.08; }
+    if(spawnPearl()) spawnT=gap; else spawnT=0.1;
   }
 
   const safeY=H*2/3;
   for(let i=pearls.length-1;i>=0;i--){
     const p=pearls[i];
-    // 冰封：先悬停 0.5s，再 40% 速度 2s
     if(p.fz){
       p.fz+=dt;
-      if(p.fz>2.5) p.fz=0;
+      if(p.fz>4) p.fz=0;
     }
-    const speedK = p.fz ? (p.fz<0.5?0:0.4) : 1;
-    p.y += p.v*speedK*dt;
+    let sp=1;
+    if(p.fz){ sp = p.fz<2 ? 0 : (p.fz<4 ? 0.4 : 1); }
+    p.y += p.v*sp*dt;
 
-    // 横风：只推 y < 2/3 区域的物品
-    if(p.wdx && p.y<safeY && p.wt<0.6){
-      p.x += p.wdx*dt/0.6; p.wt+=dt;
-      p.x = Math.max(p.r, Math.min(W-p.r, p.x));
+    // 横风：只推上 2/3
+    if(p.wdx && p.y<safeY && p.wt<0.7){
+      p.x += p.wdx*dt/0.7; p.wt+=dt;
     }
-
-    // 分裂（水果类，35% 高度）
-    if(p.fruit && !p.split && p.y>H*0.35){
+    // 冰块分裂
+    if(p.kind==='ice' && !p.split && p.y>H*0.35){
       p.split=true;
-      const half=p.pts/2;
-      const a=Math.max(1,Math.floor(half)), b=Math.max(1,p.pts-a);
-      const ang=(Math.random()<0.5?-1:1);
-      pearls.push({x:p.x,y:p.y,r:p.r*0.82,kind:p.kind,pts:a,fruit:true,split:true,v:p.v, vx:ang*70});
-      pearls.push({x:p.x,y:p.y,r:p.r*0.82,kind:p.kind,pts:b,fruit:true,split:true,v:p.v, vx:-ang*70});
-      waterfalls.push({x:p.x,y:p.y,t:0});
+      for(let k=0;k<2;k++){
+        const ang=(Math.random()*0.78);           // 0~45 度
+        const dir=(k===0?1:-1);
+        const spd=90+Math.random()*70;
+        pearls.push({x:p.x,y:p.y,r:p.r*0.8,kind:'ice',pts:1,v:p.v*0.9,split:true,
+          vx:dir*Math.cos(ang)*spd, vy:Math.sin(ang)*spd, hit:0, born:time});
+      }
+      sparks.push({x:p.x,y:p.y,t:0});
       pearls.splice(i,1);
       continue;
     }
-    if(p.vx){ p.x += p.vx*dt; p.vx*=0.96; if(p.x<p.r||p.x>W-p.r) p.vx*=-1; }
+    // 物理横向移动与撞墙
+    if(p.vx){
+      p.x += p.vx*dt;
+      if(p.x<p.r){ p.x=p.r; p.vx=Math.abs(p.vx)*0.5; }
+      if(p.x>W-p.r){ p.x=W-p.r; p.vx=-Math.abs(p.vx)*0.5; }
+      p.vx *= Math.exp(-2.2*dt);
+      if(Math.abs(p.vx)<4) p.vx=0;
+    }
 
     const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/CFG.catchBandDiv;
     if(inZone&&Math.abs(p.x-cupX)<cw*CFG.catchW+p.r*CFG.catchR){
       if(p.kind==='stone'){
         hp--; shake=14; sfxMiss(); toast('✖ ĐÁ! -1 ❤');
-        bursts.push({x:p.x,y:cupY,t:0,pts:0,kind:'stone'});
         pearls.splice(i,1);
         if(hp<=0){ startDying(); return; }
         continue;
       }
       score+=p.pts; shake=9; sfxCatch();
-      if(hidden){
-        if(typeof confetti==='function') confetti({
-          particleCount:6,spread:52,startVelocity:18,gravity:0.9,ticks:45,
-          scalar:0.75,shapes:['star'],zIndex:5,
-          colors:['#FFE400','#FFBD00','#E89400','#FFCA6C','#FDFFB8'],
-          origin:{x:Math.max(0.03,Math.min(0.97,p.x/W)),y:Math.max(0.05,Math.min(0.95,cupY/H))},
-          disableForReducedMotion:true
-        });
-      }else{
-        waterSplash(p.x,cupY);
-      }
+      if(hidden && typeof confetti==='function') confetti({
+        particleCount:6,spread:52,startVelocity:18,gravity:0.9,ticks:45,
+        scalar:0.75,shapes:['star'],zIndex:5,
+        colors:['#FFE400','#FFBD00','#E89400','#FFCA6C','#FDFFB8'],
+        origin:{x:Math.max(0.03,Math.min(0.97,p.x/W)),y:Math.max(0.05,Math.min(0.95,cupY/H))},
+        disableForReducedMotion:true
+      });
+      else waterSplash(p.x,cupY);
       bursts.push({x:p.x,y:cupY,t:0,pts:p.pts,kind:p.kind});
       pearls.splice(i,1);
       continue;
     }
     if(p.y-p.r>H){
-      pearls.splice(i,1); shake=7; sfxMiss();
+      pearls.splice(i,1); shake=6; sfxMiss();
       hp--;
       if(hp<=0){ startDying(); return; }
     }
   }
+
+  applyCollisions(dt);
   if(shake>0)shake=Math.max(0,shake-dt*45);
+}
+
+// 掉落物之间的物理碰撞（只对带速度的分裂碎片生效，最多一次连锁）
+function applyCollisions(dt){
+  let active=0;
+  for(let i=0;i<pearls.length;i++){
+    const a=pearls[i];
+    if(!a.vx) continue;
+    active++;
+    if(active>12) break;
+    for(let j=0;j<pearls.length;j++){
+      if(i===j) continue;
+      const b=pearls[j];
+      if(b.kind==='stone') continue;
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const d=Math.hypot(dx,dy);
+      const min=a.r+b.r;
+      if(d>0 && d<min){
+        const nx=dx/d, ny=dy/d;
+        const push=(min-d)/2;
+        a.x-=nx*push; b.x+=nx*push;
+        a.y-=ny*push*0.3; b.y+=ny*push*0.3;
+        if((a.hit||0)<1){
+          a.vx = -Math.abs(a.vx||0)*0.3 + nx*40;
+          a.hit=1;
+        }else{
+          a.vx*=0.4;
+        }
+        if((b.hit||0)<1){
+          b.vx = (b.vx||0)*0.5 + nx*55;
+          b.hit=1;
+        }
+        if(b.x<b.r||b.x>W-b.r) b.vx*=-0.5;
+      }
+    }
+  }
 }
 
 function cupCwNormal(){ return hiddenCount>=4 ? Math.max(56, cupW-3*Math.min(4,hiddenCount-3)) : cupW; }
@@ -527,47 +560,33 @@ function drawHeartShape(x,y,s,fill,stroke){
   ctx.restore();
 }
 function drawHearts(){
-  const n=HP_MAX, low=(hp<=1);
-  const cx=28, cy=H*0.52, gap=32;
-  const top=cy-(n-1)*gap/2;
-  // 玻璃管
-  ctx.save();
-  const tubeW=42, tubeH=(n-1)*gap+52;
-  const ty=top-23;
-  const g=ctx.createLinearGradient(cx-tubeW/2,0,cx+tubeW/2,0);
-  g.addColorStop(0,'rgba(255,180,200,.28)');
-  g.addColorStop(.5,'rgba(255,255,255,.16)');
-  g.addColorStop(1,'rgba(255,120,160,.30)');
-  ctx.beginPath();
-  if(ctx.roundRect) ctx.roundRect(cx-tubeW/2,ty,tubeW,tubeH,tubeW/2);
-  else ctx.rect(cx-tubeW/2,ty,tubeW,tubeH);
-  ctx.fillStyle=g;ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=2;ctx.stroke();
-  // 高光
-  ctx.beginPath();ctx.moveTo(cx-tubeW/2+7,ty+14);ctx.lineTo(cx-tubeW/2+7,ty+tubeH-14);
-  ctx.strokeStyle='rgba(255,255,255,.45)';ctx.lineWidth=3;ctx.lineCap='round';ctx.stroke();
-  ctx.restore();
-  // 桃心
-  for(let i=0;i<n;i++){
-    const y=top+i*gap;
-    const filled=i<hp;
-    const pulse = (low && filled) ? (0.75+0.25*Math.sin(time*10)) : 1;
+  const hudY=Math.min(H*0.16,132);
+  const y=hudY+30, x0=20, gap=24, sz=17;
+  const low=(hp<=1);
+  for(let i=0;i<HP_MAX;i++){
+    const x=x0+i*gap;
+    const alive=i<hp;
     ctx.save();
-    if(filled){
-      ctx.shadowColor='rgba(255,40,80,'+(low?0.9:0.55)+')';
-      ctx.shadowBlur=low?18:9;
-      ctx.globalAlpha=pulse;
-      drawHeartShape(cx,y,19,'#FF1F4B','#FF7A9A');
+    if(!alive){
+      ctx.globalAlpha=0.16;
+      drawHeartShape(x,y,sz,'#FFFFFF',null);
+    }else if(low){
+      const p2=0.55+0.45*Math.sin(time*10);
+      ctx.shadowColor='rgba(255,20,60,'+(0.6+0.4*p2)+')';
+      ctx.shadowBlur=16+8*p2;
+      ctx.globalAlpha=0.75+0.25*p2;
+      drawHeartShape(x,y,sz,'#FF1744','#FF7A97');
     }else{
-      ctx.globalAlpha=0.22;
-      drawHeartShape(cx,y,19,'#FFE1EA',null);
+      ctx.shadowColor='rgba(255,255,255,.55)';
+      ctx.shadowBlur=8;
+      drawHeartShape(x,y,sz,'#FFFFFF','#FFC2DA');
     }
     ctx.restore();
   }
   if(low){
     ctx.save();
-    const a=0.28+0.22*Math.sin(time*9);
-    const vg=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.22,W/2,H/2,Math.max(W,H)*0.72);
+    const a=0.20+0.16*Math.sin(time*9);
+    const vg=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.26,W/2,H/2,Math.max(W,H)*0.74);
     vg.addColorStop(0,'rgba(255,0,50,0)');
     vg.addColorStop(1,'rgba(255,0,50,'+a.toFixed(2)+')');
     ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
@@ -614,45 +633,121 @@ function drawStone(p){
   ctx.restore();
 }
 function drawIceShell(p){
+  // 冻结（前 2 秒）：多块不规则冰碴堆叠，能看见里面
+  if(p.fz && p.fz<2){
+    ctx.save();
+    for(let k=0;k<4;k++){
+      const rr=p.r*(1.25+k*0.16);
+      const ang=k*0.9+p.r*0.13;
+      ctx.save();
+      ctx.translate(p.x,p.y);ctx.rotate(ang);
+      ctx.beginPath();
+      const n=5;
+      for(let v=0;v<n;v++){
+        const a=v*Math.PI*2/n;
+        const rad=rr*(0.78+((k+v)%3)*0.13);
+        ctx.lineTo(Math.cos(a)*rad, Math.sin(a)*rad);
+      }
+      ctx.closePath();
+      ctx.fillStyle='rgba(206,240,255,'+(0.13+k*0.03)+')';
+      ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,'+(0.85-k*0.06)+')';
+      ctx.lineWidth=2;ctx.stroke();
+      ctx.restore();
+    }
+    ctx.beginPath();ctx.arc(p.x-p.r*0.4,p.y-p.r*0.45,p.r*0.28,0,7);
+    ctx.fillStyle='rgba(255,255,255,.85)';ctx.fill();
+    ctx.restore();
+    return;
+  }
+  // 减速下落（2~4 秒）：只叠一层淡蓝，闪烁
+  if(p.fz){
+    const a=0.18+0.16*Math.abs(Math.sin(time*9));
+    ctx.save();
+    ctx.beginPath();ctx.arc(p.x,p.y,p.r*0.98,0,7);
+    ctx.fillStyle='rgba(150,215,255,'+a.toFixed(2)+')';ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawIceBlock(p){
   ctx.save();
-  ctx.beginPath();ctx.arc(p.x,p.y,p.r*1.35,0,7);
-  ctx.fillStyle='rgba(190,235,255,.42)';ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=2.5;ctx.stroke();
-  ctx.beginPath();ctx.arc(p.x-p.r*0.45,p.y-p.r*0.5,p.r*0.35,0,7);
-  ctx.fillStyle='rgba(255,255,255,.85)';ctx.fill();
+  ctx.beginPath();
+  const n=6;
+  for(let v=0;v<n;v++){
+    const a=v*Math.PI*2/n+0.3;
+    const rad=p.r*(1.02+((v*37)%5)*0.07);
+    ctx.lineTo(p.x+Math.cos(a)*rad, p.y+Math.sin(a)*rad);
+  }
+  ctx.closePath();
+  const g=ctx.createLinearGradient(p.x-p.r,p.y-p.r,p.x+p.r,p.y+p.r);
+  g.addColorStop(0,'rgba(250,253,255,1)');
+  g.addColorStop(0.45,'rgba(196,232,252,.95)');
+  g.addColorStop(1,'rgba(126,190,232,.96)');
+  ctx.fillStyle=g;ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,1)';ctx.lineWidth=2.5;ctx.stroke();
+  // 裂纹
+  ctx.beginPath();
+  ctx.moveTo(p.x-p.r*0.4,p.y-p.r*0.5);
+  ctx.lineTo(p.x+p.r*0.05,p.y+p.r*0.1);
+  ctx.lineTo(p.x-p.r*0.2,p.y+p.r*0.55);
+  ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=1.6;ctx.stroke();
   ctx.restore();
 }
 function drawWindFx(){
   if(windWarn<=0 && windT<=0) return;
-  const active = windT>0;
-  const a = active?0.5:0.32;
+  const live=windT>0;
+  const baseA=live?0.5:0.30;
   ctx.save();
-  ctx.strokeStyle='rgba(255,255,255,'+a+')';
-  ctx.lineWidth=3;ctx.lineCap='round';
-  const n=9;
+  ctx.lineCap='round';
+  const n=6;
   for(let i=0;i<n;i++){
-    const y=40+((i*97+ (time*160*windDir))%(H*0.62));
-    const x0=((i*211)%W);
-    const len=70+ (i%3)*40;
+    const phase=(time*(live?0.55:0.3)+i*0.37)%1;
+    const y0=H*0.06+ (i/n)*H*0.58 + phase*H*0.10;
+    const x0=windDir>0 ? -W*0.55+phase*W*1.5 : W*1.55-phase*W*1.5;
+    const len=W*(0.55+ (i%3)*0.10);
+    const g=ctx.createLinearGradient(x0,0,x0+windDir*len,0);
+    const a=baseA*(0.35+0.65*Math.sin(phase*Math.PI));
+    g.addColorStop(0,'rgba(255,255,255,0)');
+    g.addColorStop(0.45,'rgba(255,255,255,'+a.toFixed(2)+')');
+    g.addColorStop(1,'rgba(255,255,255,0)');
     ctx.beginPath();
-    ctx.moveTo(x0,y);
-    ctx.lineTo(x0+windDir*len,y-12);
-    ctx.stroke();
+    ctx.moveTo(x0,y0);
+    ctx.quadraticCurveTo(x0+windDir*len*0.5, y0-26, x0+windDir*len, y0-6);
+    ctx.strokeStyle=g;ctx.lineWidth=4.5;ctx.stroke();
   }
   ctx.restore();
-}
-function drawFogFx(){
+}function drawFogFx(){
   if(fogT<=0) return;
   const k=Math.min(1, fogT/0.25);
+  const cover=H*0.72;
   ctx.save();
-  const g=ctx.createLinearGradient(0,0,0,H*2/3);
-  g.addColorStop(0,'rgba(255,255,255,'+(0.96*k)+')');
-  g.addColorStop(1,'rgba(255,255,255,'+(0.72*k)+')');
+  const g=ctx.createLinearGradient(0,0,0,cover);
+  g.addColorStop(0,'rgba(255,255,255,'+(0.97*k)+')');
+  g.addColorStop(0.55,'rgba(255,255,255,'+(0.80*k)+')');
+  g.addColorStop(1,'rgba(255,255,255,0)');
   ctx.fillStyle=g;
-  ctx.fillRect(0,0,W,H*2/3);
+  ctx.fillRect(0,0,W,cover);
+  // 雪花
+  const t=time*1.6;
+  for(let i=0;i<46;i++){
+    const seed=i*97.13;
+    const yy=((seed%cover)+t*(22+(i%5)*9))%cover;
+    const xx=(seed*1.7+(Math.sin(t*0.6+i)*18))%W;
+    const fade=Math.max(0,1-yy/cover);
+    const rr=1.4+(i%4)*0.9;
+    ctx.globalAlpha=(0.25+0.65*fade)*k;
+    ctx.fillStyle='#ffffff';
+    ctx.beginPath();ctx.arc(xx,yy,rr,0,7);ctx.fill();
+    if(i%3===0){
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(xx-rr*2.2,yy);ctx.lineTo(xx+rr*2.2,yy);
+      ctx.moveTo(xx,yy-rr*2.2);ctx.lineTo(xx,yy+rr*2.2);ctx.stroke();
+    }
+  }
   ctx.restore();
-}
-function drawGameOverFx(){
+}function drawGameOverFx(){
   if(state!=='dying') return;
   ctx.save();
   ctx.fillStyle='rgba(30,0,15,.72)';
@@ -693,6 +788,22 @@ function cupPath(){
   const t=cw/2,b=cw*0.36;
   ctx.beginPath();ctx.moveTo(-t,0);ctx.lineTo(-b,cupH);
   ctx.quadraticCurveTo(0,cupH+12,b,cupH);ctx.lineTo(t,0);ctx.closePath();
+}
+function drawSparks(dt){
+  for(let i=sparks.length-1;i>=0;i--){
+    const q=sparks[i]; q.t+=dt;
+    if(q.t>0.45){ sparks.splice(i,1); continue; }
+    const k=q.t/0.45;
+    ctx.save();ctx.globalAlpha=1-k;
+    for(let v=0;v<6;v++){
+      const a=v*1.05;
+      const d=8+k*34;
+      ctx.beginPath();
+      ctx.arc(q.x+Math.cos(a)*d,q.y+Math.sin(a)*d,3.2*(1-k)+1,0,7);
+      ctx.fillStyle='rgba(225,245,255,.95)';ctx.fill();
+    }
+    ctx.restore();
+  }
 }
 function drawBursts(){
   drawWater();
@@ -958,6 +1069,7 @@ function drawFest(p){
 
 function drawPearlRaw(p){
   if(p.kind==='stone'){drawStone(p);return;}
+  if(p.kind==='ice'){drawIceBlock(p);return;}
   if(FRUIT_EMOJI[p.kind]){drawFruit(p);if(p.fz)drawIceShell(p);return;}
   if(FEST.indexOf(p.kind)>=0){
     if(SPR[p.kind]){ const sz=p.r*2.35; ctx.drawImage(SPR[p.kind],p.x-sz/2,p.y-sz/2,sz,sz); }
@@ -998,11 +1110,13 @@ const w=p.r*2.05,h=p.r*1.02;                  // 矮一点、宽一点，像焦�
 }
 
 function drawPearl(p){ drawPearlRaw(p); if(p.fz) drawIceShell(p); }
-function draw(){
-  drawBackground();
-  // 顶部：分数 + 关卡进度
+function drawHud(){
   ctx.save();
   const hudY=Math.min(H*0.16,132);
+  // 深色底衬：暴风雪白雾上也能看清
+  ctx.fillStyle='rgba(64,0,28,.42)';
+  if(ctx.roundRect){ctx.beginPath();ctx.roundRect(0,hudY-30,W,66,0);ctx.fill();}
+  else ctx.fillRect(0,hudY-30,W,66);
   const bgG=ctx.createLinearGradient(0,hudY-34,0,hudY+16);
   bgG.addColorStop(0,'rgba(80,0,35,.45)');bgG.addColorStop(1,'rgba(80,0,35,0)');
   ctx.fillStyle=bgG;ctx.fillRect(0,hudY-34,W,50);
@@ -1016,6 +1130,10 @@ function draw(){
   ctx.fillStyle='#FFE9A8';
   ctx.fillText(hidden?('ẨN '+Math.ceil(hiddenT)+'s'):('M'+(hiddenCount+1)+'  '+(hiddenCount>=GATES.length?'MAX':Math.max(0,next-score)+'đ')),W-20,Math.min(H*0.16,132));
   ctx.restore();
+}
+
+function draw(){
+  drawBackground();
 
   if(bannerT>0){
     const a=Math.min(1,bannerT/0.5)*Math.min(1,(2.8-bannerT)/0.35);
@@ -1031,12 +1149,14 @@ function draw(){
     ctx.restore();
   }
 
+  drawSparks(0.016);
   pearls.forEach(drawPearl);
   drawCup();
   drawBursts();
   drawWindFx();
   drawFogFx();
   drawHearts();
+  drawHud();
   drawGameOverFx();
 }
 
