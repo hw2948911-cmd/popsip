@@ -264,6 +264,7 @@ let cw=cupW;                 // 当前杯口宽度（隐藏关变窄）
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
 /* ===== 无尽模式状态 ===== */
 const HP_MAX=10, GATES=[100,350,700,1150,1700];
+const BOUNCE_V=115;   // 果冻回弹与回弹后下落的速度：等于游戏刚开始时的下落速度
 let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0;
 let windCd=9, windT=0, windWarn=0, windDir=1, blizCd=26, fogT=0;
 const FRUIT_TIERS=[
@@ -290,25 +291,49 @@ const BASE_TIME=CFG.baseTime;   // 前 60 秒的判定时间点
 const MISS_ALLOWED=CFG.missAllowed; // 前 60 秒最多能漏几个（改 0 就是零失误）
 // 固定掉落顺序：每个循环 10 个（6 黑 / 3 白 / 1 布丁），分数可比、比赛公平
 // 掉落顺序：20 个一循环，按时间解锁高分糖
-function pickKind(){
+/* 防「整屏同款」：同种最多同时 3 个、最多连续 2 个，整屏已有同款时下一个必须换 */
+const MAX_SAME_ON_SCREEN=4, MAX_SAME_STREAK=3;
+let lastSpawnKind='', lastKindRun=0;
+function rollKind(){
   if(hidden) return FEST[Math.floor(Math.random()*FEST.length)];
   const fr=unlockedFruits();
-  const stoneOn = hiddenCount>=5;
+  const stoneOn = hiddenCount>=4;
   if(stoneOn && Math.random()<0.08) return 'stone';
-  if(hiddenCount>=1 && Math.random()<0.06) return 'ice';
-  const frChance = Math.min(0.42, fr.length*0.11);
+  if(hiddenCount>=1 && countOnScreen('ice')<2 && Math.random()<0.06) return 'ice';
+  const frChance = Math.min(0.36, fr.length*0.09);   // 防同款后种类变多，水果率压低一点防止分数暴涨
   if(fr.length && Math.random()<frChance) return fr[Math.floor(Math.random()*fr.length)];
   const r=Math.random();
   if(r<0.12) return 'pudding';
-  if(r<0.34) return 'white';
+  if(r<0.26) return 'nata';      // 椰果：1 分，开局就有，增加种类
+  if(r<0.44) return 'white';
   return 'pearl';
+}
+function countOnScreen(kind){
+  let n=0;
+  for(let i=0;i<pearls.length;i++) if(pearls[i].kind===kind) n++;
+  return n;
+}
+function kindOk(kind){
+  const same=countOnScreen(kind);
+  if(same>=MAX_SAME_ON_SCREEN) return false;        // 同种已经够多了
+  if(pearls.length>=2 && same===pearls.length) return false; // 整屏都是它，必须换
+  if(kind===lastSpawnKind && lastKindRun>=MAX_SAME_STREAK) return false; // 连着出太多次
+  return true;
+}
+function pickKind(){
+  let k=rollKind();
+  for(let i=0;i<8 && !kindOk(k); i++) k=rollKind();
+  if(!kindOk(k) && k==='pearl' && kindOk('white')) k='white';
+  else if(!kindOk(k) && k==='white' && kindOk('pearl')) k='pearl';
+  if(k===lastSpawnKind) lastKindRun++; else { lastSpawnKind=k; lastKindRun=1; }
+  return k;
 }
 function itemPts(kind){
   if(hidden) return hiddenPts;
   if(kind==='stone') return 0;
   if(kind==='ice') return 1;
   if(kind==='pudding') return 2;
-  if(kind==='white'||kind==='pearl') return 1;
+  if(kind==='white'||kind==='pearl'||kind==='nata') return 1;
   const f=fruitPts(kind); if(f) return f;
   return 5;
 }
@@ -317,6 +342,7 @@ function itemRad(kind){
   if(kind==='ice') return 14;
   if(kind==='pudding') return 14;
   if(kind==='white'||kind==='pearl') return 11;
+  if(kind==='nata') return 13;
   if(hidden) return 18;
   return 15;
 }
@@ -333,6 +359,7 @@ function resize(){
 
 function reset(){
   score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;pairUsed=false;cw=cupW;
+  lastSpawnKind='';lastKindRun=0;
   hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; windT=0; windWarn=0; windCd=8+Math.random()*4; blizCd=24+Math.random()*8; fogT=0;
   cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;
   for(let i=0;i<3;i++){
@@ -427,7 +454,15 @@ function update(dt){
     }
     let sp=1;
     if(p.fz){ sp = p.fz<2 ? 0 : (p.fz<4 ? 0.4 : 1); }
-    p.y += p.v*sp*dt;
+    const vy=p.v*sp;
+    if(p.up){
+      p.y-=BOUNCE_V*sp*dt;                        // 回弹慢速，按开局速度往上飘
+      if(p.y<H*0.65){ p.up=false; p.bounced=true; }   // 弹回约杯口上方，高度是原来的 1/2
+    }else if(p.bounced){
+      p.y+=BOUNCE_V*sp*dt;                        // 回弹之后的下落也按开局速度，慢慢落
+    }else{
+      p.y+=vy*dt;
+    }
 
     // 横风：只推上 2/3
     if(p.wdx && p.y<safeY && p.wt<0.7){
@@ -478,6 +513,10 @@ function update(dt){
       pearls.splice(i,1);
       continue;
     }
+    // 果冻弹跳：撞到杯口还没接住，就从杯口弹回上方一次（再漏才算漏）
+    if(p.kind==='pudding' && !p.bounced && !p.up && vy>0 && p.y+p.r>cupY){
+      p.up=true; sparks.push({x:p.x,y:cupY,t:0});
+    }
     if(p.y-p.r>H){
       pearls.splice(i,1); shake=6; sfxMiss();
       hp--;
@@ -525,7 +564,7 @@ function applyCollisions(dt){
   }
 }
 
-function cupCwNormal(){ return hiddenCount>=4 ? Math.max(56, cupW-3*Math.min(4,hiddenCount-3)) : cupW; }
+function cupCwNormal(){ return hiddenCount>=1 ? Math.max(56, cupW-3*Math.min(4,hiddenCount)) : cupW; }   // 第一次隐藏关后开始收，每次 -3px
 
 function startGust(){
   windT=3; windDir=Math.random()<0.5?-1:1;
@@ -564,8 +603,13 @@ const HEART_PIX=[
 ];
 function drawPixelHeart(cx,cy,cell,alpha,dead){
   const rows=HEART_PIX.length, cols=HEART_PIX[0].length;
+  const d=Math.min(window.devicePixelRatio||1,2);   // 对齐物理像素，缩小后也不糊
+  const snap=v=>Math.round(v*d)/d;
   const w=cols*cell, h=rows*cell;
-  const x0=cx-w/2, y0=cy-h/2;
+  const x0=snap(cx-w/2), y0=snap(cy-h/2);
+  const ax=[], ay=[];
+  for(let c=0;c<=cols;c++) ax.push(snap(x0+c*cell));
+  for(let r=0;r<=rows;r++) ay.push(snap(y0+r*cell));
   ctx.save();
   ctx.globalAlpha=alpha;
   for(let r=0;r<rows;r++){
@@ -579,7 +623,7 @@ function drawPixelHeart(cx,cy,cell,alpha,dead){
       else if(dead) col='rgba(255,255,255,.30)';
       else col = r<=2 ? '#FF3D5A' : (r<=5 ? '#E81232' : '#B60E28');
       ctx.fillStyle=col;
-      ctx.fillRect(x0+c*cell, y0+r*cell, cell+.4, cell+.4);
+      ctx.fillRect(ax[c], ay[r], ax[c+1]-ax[c], ay[r+1]-ay[r]);
     }
   }
   ctx.restore();
@@ -614,13 +658,12 @@ function drawGameOverFx(){
 
 function drawHearts(){
   const hudY=Math.min(H*0.16,132);
-  const y=hudY+34, x0=26, gap=29, cell=2.6;
+  const y=hudY+34, x0=26, gap=25, cell=1.73;
   const low=(hp<=1);
   for(let i=0;i<HP_MAX;i++){
+    if(i>=hp) continue;      // 失去的桃心不再留虚线占位，直接不画
     const x=x0+i*gap;
-    const alive=i<hp;
-    if(!alive){ drawPixelHeart(x,y,cell,0.18,true); }
-    else if(low){
+    if(low){
       const p2=0.55+0.45*Math.sin(time*10);
       ctx.save();
       ctx.shadowColor='rgba(255,20,60,'+(0.7+0.3*p2)+')';
@@ -673,6 +716,38 @@ function drawStone(p){
   g.addColorStop(0,'#9AA0A6');g.addColorStop(1,'#5A6067');
   ctx.fillStyle=g;ctx.fill();
   ctx.strokeStyle='rgba(255,70,90,'+(0.5+0.5*pulse)+')';ctx.lineWidth=2.5;ctx.stroke();
+  ctx.restore();
+}
+function drawNata(p){
+  // 椰果：三颗半透明奶白小方块，带一点胶质感
+  ctx.save();
+  ctx.translate(p.x,p.y);
+  const u=p.r*0.80;
+  const cubes=[[-u*0.95,-u*0.30,1.00,-0.12],[ u*0.92, u*0.06,0.92, 0.18],[-u*0.10, u*0.98,0.80,-0.05]];
+  for(let i=0;i<cubes.length;i++){
+    const dx=cubes[i][0], dy=cubes[i][1], s=cubes[i][2], rot=cubes[i][3];
+    const w=u*1.42*s, h=u*1.16*s;
+    ctx.save();
+    ctx.translate(dx,dy);ctx.rotate(rot);
+    const g=ctx.createLinearGradient(-w/2,-h/2,w/2,h/2);
+    g.addColorStop(0,'rgba(255,255,255,.98)');
+    g.addColorStop(0.55,'rgba(247,252,255,.93)');
+    g.addColorStop(1,'rgba(206,232,246,.88)');
+    ctx.beginPath();
+    ctx.moveTo(-w/2+2,-h/2);
+    ctx.lineTo(w/2,-h/2+1);
+    ctx.lineTo(w/2-1,h/2);
+    ctx.lineTo(-w/2,h/2-2);
+    ctx.closePath();
+    ctx.shadowColor='rgba(90,0,40,.45)';ctx.shadowBlur=5;
+    ctx.fillStyle=g;ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.strokeStyle='rgba(140,200,225,.85)';ctx.lineWidth=1.4;ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(-w*0.18,-h*0.18,w*0.17,h*0.13,0.3,0,7);
+    ctx.fillStyle='rgba(255,255,255,.95)';ctx.fill();
+    ctx.restore();
+  }
   ctx.restore();
 }
 function drawIceShell(p){
@@ -1131,24 +1206,25 @@ function drawPearlRaw(p){
     else drawFest(p);
     return;
   }
+  if(p.kind==='nata'){drawNata(p);return;}
   if(p.kind==='candy'){drawCandy(p);return;}
   if(p.kind==='gift'){drawGift(p);return;}
   if(p.kind==='pudding'){
-const w=p.r*2.05,h=p.r*1.02;                  // 矮一点、宽一点，像焦糖布丁
+    const w=p.r*2.05,h=p.r*1.02;                  // 上窄下宽：倒扣的焦糖布丁（上下宽度对换，不是整图翻转）
     ctx.beginPath();
-    ctx.moveTo(p.x-w/2,p.y-h/2);
-    ctx.lineTo(p.x+w/2,p.y-h/2);
-    ctx.lineTo(p.x+w*0.34,p.y+h/2);
-    ctx.quadraticCurveTo(p.x,p.y+h/2+5,p.x-w*0.34,p.y+h/2);
+    ctx.moveTo(p.x-w*0.34,p.y-h/2);               // 顶边窄
+    ctx.lineTo(p.x+w*0.34,p.y-h/2);
+    ctx.lineTo(p.x+w/2,p.y+h/2);                  // 底边宽
+    ctx.quadraticCurveTo(p.x,p.y+h/2+5,p.x-w/2,p.y+h/2);
     ctx.closePath();
     const g2=ctx.createLinearGradient(0,p.y-h/2,0,p.y+h/2);
     g2.addColorStop(0,'#FFE9B0');g2.addColorStop(1,'#EFB43F');
     ctx.fillStyle=g2;ctx.fill();
-    // 焦糖顶面
-    ctx.beginPath();ctx.ellipse(p.x,p.y-h/2,w/2,w*0.15,0,0,7);
+    // 焦糖顶面（跟着窄顶收窄）
+    ctx.beginPath();ctx.ellipse(p.x,p.y-h/2,w*0.34,w*0.13,0,0,7);
     ctx.fillStyle='#A9581B';ctx.fill();
     // 高光
-    ctx.beginPath();ctx.ellipse(p.x-w*0.16,p.y+h*0.06,w*0.10,h*0.20,0,0,7);
+    ctx.beginPath();ctx.ellipse(p.x-w*0.17,p.y+h*0.08,w*0.10,h*0.20,0,0,7);
     ctx.fillStyle='rgba(255,255,255,.35)';ctx.fill();
     return;
   }
