@@ -265,10 +265,13 @@ let cw=cupW;                 // 当前杯口宽度（隐藏关变窄）
 
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
 /* ===== 无尽模式状态 ===== */
-const HP_MAX=10, GATES=[100,260,480,780,1150,1600,2100,2700];   // 隐藏关门槛：缩短周期，后面继续加
+const HP_MAX=10, HIDDEN_AT=500;   // 隐藏关：整局只在累计 500 分时出现一次
+const TIER_SEC=30;                // 难度：每 30 秒升一档（按时间，不按分数）
+function tierNow(){ return Math.floor(time/TIER_SEC); }
 const BOUNCE_V=115;   // 果冻回弹与回弹后下落的速度：等于游戏刚开始时的下落速度
+const HIDDEN_SEC=15.04; // 隐藏关时长：对齐 Jingle Bells 一整轮（64 拍 × 0.235 秒）
 const ICE_SPLIT=false;  // 冰块分裂开关（暂时关闭，改 true 恢复）
-let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0;
+let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0, tierShown=0;
 let windCd=9, windT=0, windWarn=0, windDir=1, blizCd=26, fogT=0;
 const FRUIT_TIERS=[
   [['grape','\uD83C\uDF47'],['mango','\uD83E\uDD6D'],['avocado','\uD83E\uDD51']],
@@ -282,7 +285,7 @@ function fruitPts(kind){
   for(let t=0;t<3;t++) for(const f of FRUIT_TIERS[t]) if(f[0]===kind) return t+3;
   return 0;
 }
-function unlockedFruits(){ const out=[]; for(let t=0;t<Math.min(3,hiddenCount);t++) for(const f of FRUIT_TIERS[t]) out.push(f[0]); return out; }
+function unlockedFruits(){ const out=[]; for(let t=0;t<Math.min(3,tierNow());t++) for(const f of FRUIT_TIERS[t]) out.push(f[0]); return out; }
 function maxItemPts(){
   let m=2;
   unlockedFruits().forEach(function(k){ m=Math.max(m,fruitPts(k)); });
@@ -300,9 +303,9 @@ let lastSpawnKind='', lastKindRun=0;
 function rollKind(){
   if(hidden) return FEST[Math.floor(Math.random()*FEST.length)];
   const fr=unlockedFruits();
-  const stoneOn = hiddenCount>=4;
+  const stoneOn = tierNow()>=5;
   if(stoneOn && Math.random()<0.08) return 'stone';
-  if(hiddenCount>=1 && countOnScreen('ice')<2 && Math.random()<0.06) return 'ice';
+  if(tierNow()>=1 && countOnScreen('ice')<2 && Math.random()<0.06) return 'ice';
   const frChance = Math.min(0.36, fr.length*0.09);   // 防同款后种类变多，水果率压低一点防止分数暴涨
   if(fr.length && Math.random()<frChance) return fr[Math.floor(Math.random()*fr.length)];
   const r=Math.random();
@@ -363,7 +366,7 @@ function resize(){
 function reset(){
   score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;pairUsed=false;cw=cupW;
   lastSpawnKind='';lastKindRun=0;
-  hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; windT=0; windWarn=0; windCd=8+Math.random()*4; blizCd=24+Math.random()*8; fogT=0;
+  hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; tierShown=0; windT=0; windWarn=0; windCd=8+Math.random()*4; blizCd=24+Math.random()*8; fogT=0;
   cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupV=0;keyCtrlT=0;
   for(let i=0;i<3;i++){
     const k=pickKind();
@@ -409,36 +412,43 @@ function update(dt){
     hiddenT-=dt;
     if(hiddenT<=0){
       hidden=false; hiddenCount++; cw=cupCwNormal(); stopXmas();
-      bannerT=2.2; blizCd=Math.max(8,blizCd-4);
+      blizCd=Math.max(8,blizCd-4);
     }
   }else{
-    if(hiddenCount<GATES.length && score>=GATES[hiddenCount]){
-      hidden=true; hiddenT=10; hiddenPts=2*maxItemPts(); cw=56; bannerT=2.8; sfxJingle();
+    if(hiddenCount<1 && score>=HIDDEN_AT){
+      hidden=true; hiddenT=HIDDEN_SEC; hiddenPts=2*maxItemPts(); cw=56; bannerT=2.8; sfxJingle();
     }
   }
 
-  // 速度：缓慢上升、早封顶（放松感）
-  const baseV = 110 + Math.min(190, time*0.75);       // 110 → 300，约 4 分钟后封顶
+  // 难度按时间提升：每 30 秒升一档就提示一次，跟分数、隐藏关都无关
+  if(!hidden){
+    const tTop=tierNow();
+    if(tTop>tierShown){ tierShown=tTop; bannerT=2.0; cw=cupCwNormal(); }   // 屏幕正中提示 2 秒
+  }
+
+  // 速度：缓慢上升、早封顶（放松感）；第 5 档之后每档再加 5%（封顶 1.8 倍）
+  const tierSpd=1+Math.min(0.8, 0.05*Math.max(0,tierNow()-5));
+  const baseV = (110 + Math.min(190, time*0.75))*tierSpd;       // 110 → 300
   const burst = (windT>0||fogT>0)?1.12:1;             // 机制期只快 12%
-  const vNow = Math.min(hidden?520:330, baseV*burst*(hidden?1.25:1));
+  const vNow = Math.min((hidden?520:330)*tierSpd, baseV*burst*(hidden?1.25:1));
 
   // 出球间隔：越到后面略密，但保持呼吸感
   let gap = Math.max(0.55, 1.02 - Math.min(0.30, time*0.0012));
   if(hidden){
     gap = 0.52;
-  }else if(hiddenCount>0){
-    // 隐藏关之后屏幕明显变密：每过一次隐藏关出球再快一档
-    gap = Math.max(0.42, gap*Math.max(0.60, 1-0.20*hiddenCount));
+  }else{
+    const tDen=tierNow();
+    if(tDen>0) gap = Math.max(0.42, gap*Math.max(0.60, 1-0.18*tDen));
   }
 
   // 风
-  if(hiddenCount>=2 && !hidden){
+  if(tierNow()>=2 && !hidden){
     if(windT>0){ windT-=dt; if(windT<=0) windCd=9+Math.random()*5; }
     else if(windWarn>0){ windWarn-=dt; if(windWarn<=0) startGust(); }
     else { windCd-=dt; if(windCd<=0) windWarn=0.7; }
   }
   // 暴风雪
-  if(hiddenCount>=3 && !hidden){
+  if(tierNow()>=3 && !hidden){
     if(fogT>0){ fogT-=dt; if(fogT<=0) freezeSome(); }
     else { blizCd-=dt; if(blizCd<=0){ fogT=1.0; blizCd=26+Math.random()*12; } }
   }
@@ -591,7 +601,7 @@ function applyCollisions(dt){
   }
 }
 
-function cupCwNormal(){ return hiddenCount>=1 ? Math.max(56, cupW-3*Math.min(4,hiddenCount)) : cupW; }   // 第一次隐藏关后开始收，每次 -3px
+function cupCwNormal(){ return Math.max(56, cupW-2*Math.min(6,tierNow())); }   // 每升一档 -2px，第 6 档封底 56
 
 function startGust(){
   windT=3; windDir=Math.random()<0.5?-1:1;
@@ -718,8 +728,7 @@ function fruitColor(kind){
 }
 function drawFruit(p){
   ctx.save();
-  ctx.shadowColor='rgba(90,0,40,.55)';ctx.shadowBlur=8;
-  // emoji
+  // 不加阴影：部分安卓机 emoji+shadow 会渲染成半透明的「虚影」
   ctx.textAlign='center';ctx.textBaseline='middle';
   const size=Math.round(p.r*1.7);
   ctx.font=size+'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
@@ -805,15 +814,7 @@ function drawIceShell(p){
     ctx.restore();
     return;
   }
-  // 减速下落（2~4 秒）：只叠一层淡蓝，闪烁
-  if(p.fz){
-    const a=0.18+0.16*Math.abs(Math.sin(time*9));
-    ctx.save();
-    ctx.beginPath();ctx.arc(p.x,p.y,p.r*0.98,0,7);
-    ctx.fillStyle='rgba(150,215,255,'+a.toFixed(2)+')';ctx.fill();
-    ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=1.5;ctx.stroke();
-    ctx.restore();
-  }
+  // 减速下落（2~4 秒）：不叠任何颜色，保持原图（结束后自然恢复正常）
 }
 
 function drawIceBlock(p){
@@ -1227,7 +1228,7 @@ function drawFest(p){
 function drawPearlRaw(p){
   if(p.kind==='stone'){drawStone(p);return;}
   if(p.kind==='ice'){drawIceBlock(p);return;}
-  if(FRUIT_EMOJI[p.kind]){drawFruit(p);if(p.fz)drawIceShell(p);return;}
+  if(FRUIT_EMOJI[p.kind]){drawFruit(p);return;}
   if(FEST.indexOf(p.kind)>=0){
     if(SPR[p.kind]){ const sz=p.r*2.35; ctx.drawImage(SPR[p.kind],p.x-sz/2,p.y-sz/2,sz,sz); }
     else drawFest(p);
@@ -1275,11 +1276,11 @@ function drawHud(){
   ctx.fillStyle='#fff';ctx.textAlign='left';ctx.textBaseline='alphabetic';
   ctx.font='900 24px -apple-system,Roboto,sans-serif';
   ctx.fillText('Điểm '+score,20,Math.min(H*0.16,132));
-  const next=GATES[Math.min(GATES.length-1,hiddenCount)];
+  const next=HIDDEN_AT;
   ctx.textAlign='right';
   ctx.font='800 16px -apple-system,Roboto,sans-serif';
   ctx.fillStyle='#FFE9A8';
-  ctx.fillText(hidden?('ẨN '+Math.ceil(hiddenT)+'s'):('M'+(hiddenCount+1)+'  '+(hiddenCount>=GATES.length?'MAX':Math.max(0,next-score)+'đ')),W-20,Math.min(H*0.16,132));
+  ctx.fillText(hidden?('ẨN '+Math.ceil(hiddenT)+'s'):('M'+(tierNow()+1)+(hiddenCount<1?'  '+Math.max(0,next-score)+'đ':'')),W-20,Math.min(H*0.16,132));
   ctx.restore();
 }
 
@@ -1290,13 +1291,23 @@ function draw(){
     const a=Math.min(1,bannerT/0.5)*Math.min(1,(2.8-bannerT)/0.35);
     ctx.save();ctx.globalAlpha=Math.max(0,a);
     ctx.textAlign='center';
-    ctx.font='900 28px -apple-system,Roboto,sans-serif';
     ctx.shadowColor='rgba(90,0,40,.7)';ctx.shadowBlur=14;
-    ctx.fillStyle='#FFE9A8';
-    ctx.fillText(hidden?'✨ MÀN ẨN ✨':'🎉 MỞ KHÓA NÔNG SẢN MỚI',W/2,H*0.28);
-    ctx.font='800 18px -apple-system,Roboto,sans-serif';
-    ctx.fillStyle='#fff';
-    ctx.fillText(hidden?('10 giây · mỗi món +'+hiddenPts):(hiddenCount>3?'Độ khó tăng!':'Thêm 3 loại trái cây'),W/2,H*0.28+30);
+    if(hidden){
+      ctx.font='900 28px -apple-system,Roboto,sans-serif';
+      ctx.fillStyle='#FFE9A8';
+      ctx.fillText('✨ MÀN ẨN ✨',W/2,H*0.28);
+      ctx.font='800 18px -apple-system,Roboto,sans-serif';
+      ctx.fillStyle='#fff';
+      ctx.fillText(Math.round(HIDDEN_SEC)+' giây · mỗi món +'+hiddenPts,W/2,H*0.28+30);
+    }else{
+      // 换难度：屏幕正中央提示
+      ctx.font='900 44px -apple-system,Roboto,sans-serif';
+      ctx.fillStyle='#FFE9A8';
+      ctx.fillText('ĐỘ KHÓ TĂNG',W/2,H*0.47);
+      ctx.font='800 20px -apple-system,Roboto,sans-serif';
+      ctx.fillStyle='#fff';
+      ctx.fillText('M'+(tierNow()+1),W/2,H*0.47+40);
+    }
     ctx.restore();
   }
 
