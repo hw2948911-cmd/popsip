@@ -224,7 +224,7 @@ animation-name:fall;animation-timing-function:linear;animation-iteration-count:i
 </div>
 <script src="./confetti.min.js"></script>
 <script>
-const cv=document.getElementById('game'),ctx=cv.getContext('2d');
+const cv=document.getElementById('game'),ctx=cv.getContext('2d',{alpha:false});
 // ===== 可调参数（只改这里就够了）=====
 const CFG={
   dur:90,              // 总时长（60 判定 + 30 隐藏关）
@@ -255,6 +255,7 @@ let sparks=[];
 const ZALO_URL='https://zalo.me/g/ozu0yzjsdpgmctvtnmwy';  // 官方 Zalo 群
 const SITE='https://hw2948911-cmd.github.io/popsip/';
 const QS=new URLSearchParams(location.search);
+const DBG=QS.get('dbg')==='1';   // 加 ?dbg=1 打开调试标注（排查「变虚」用）
 const CH_SCORE=parseInt(QS.get('ch')||'',10);      // 好友挑战分数
 const CH_NAME=(QS.get('n')||'').slice(0,12);       // 好友名字
 const REF=(QS.get('r')||'').slice(0,12);           // 邀请人
@@ -274,7 +275,7 @@ const ICE_SPLIT=false;  // 冰块分裂开关（暂时关闭，改 true 恢复�
 const ICE_SPAWN=false;  // 单独的冰块是否出现（false = 由暴风雪产出的「永久冻结物」代替它的惩罚作用）
 let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0, tierShown=0;
 let specialCd=4, specialLast='';
-let windT=0, windWarn=0, windDir=1, fogT=0, blizHold=0, wxGap=4, wxLast='';
+let windT=0, windWarn=0, windDir=1, fogT=0, blizHold=0, wxGap=7, wxLast='';
 const FRUIT_TIERS=[
   [['grape','\uD83C\uDF47'],['mango','\uD83E\uDD6D'],['avocado','\uD83E\uDD51']],
   [['guava','\uD83C\uDF50'],['pineapple','\uD83C\uDF4D'],['passion','\uD83C\uDF4B']],
@@ -283,8 +284,7 @@ const FRUIT_TIERS=[
 const FRUIT_EMOJI={grape:'\uD83C\uDF47',mango:'\uD83E\uDD6D',avocado:'\uD83E\uDD51',
   guava:'\uD83C\uDF50',pineapple:'\uD83C\uDF4D',passion:'\uD83C\uDF4B',
   butterfly:'\uD83C\uDF38',starfruit:'\u2B50',dragon:'\uD83C\uDF49'};
-// 预热 emoji：先把所有水果图标在离屏画布上画一遍，逼字体完成栅格化，
-// 否则第一次出现的 emoji 可能被浏览器画成半透明/模糊的「虚影」
+// 预热 emoji：先把所有水果图标在离屏画布上画一遍，逼字体完成栅格化
 (function(){
   try{
     const c=document.createElement('canvas'); c.width=c.height=64;
@@ -294,6 +294,21 @@ const FRUIT_EMOJI={grape:'\uD83C\uDF47',mango:'\uD83E\uDD6D',avocado:'\uD83E\uDD
       g.font=sz+'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
       for(const k in FRUIT_EMOJI) g.fillText(FRUIT_EMOJI[k],32,32);
       g.fillText('\u2744',32,32);
+    }
+  }catch(e){}
+})();
+// 水果图标：把 emoji 预渲染成 160px 精灵，之后整局贴图（比每帧 fillText 更稳定）
+const FRUIT_SPR={};
+(function(){
+  try{
+    const S=160, F=128;
+    for(const k in FRUIT_EMOJI){
+      const base=document.createElement('canvas'); base.width=base.height=S;
+      const bg=base.getContext('2d');
+      bg.textAlign='center'; bg.textBaseline='middle';
+      bg.font=F+'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+      bg.fillText(FRUIT_EMOJI[k], S/2, S/2+4);
+      FRUIT_SPR[k]=base;
     }
   }catch(e){}
 })();
@@ -367,7 +382,7 @@ function itemRad(kind){
 }
 
 function resize(){
-  const d=Math.min(window.devicePixelRatio||1,2);
+  const d=Math.min(window.devicePixelRatio||1,3);   // 高分屏按 3 倍渲染，emoji 更清晰
   W=cv.clientWidth||window.innerWidth;
   H=cv.clientHeight||window.innerHeight;
   cv.width=Math.round(W*d);cv.height=Math.round(H*d);
@@ -381,7 +396,7 @@ function reset(){
   lastSpawnKind='';lastKindRun=0;
   hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; tierShown=0;
   specialCd=3+Math.random()*2; specialLast='';
-  windT=0; windWarn=0; fogT=0; blizHold=0; wxGap=3+Math.random()*2; wxLast='';
+  windT=0; windWarn=0; fogT=0; blizHold=0; wxGap=6+Math.random()*4; wxLast='';
   cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupV=0;keyCtrlT=0;cupLockT=0;
   for(let i=0;i<3;i++){
     const k=pickKind();
@@ -420,7 +435,8 @@ function spawnPearl(forceKind, asTrap){
       if(Math.abs(tq-tNew) < 0.35){ clash=true; break; }
     }
     if(!clash) break;
-    v = Math.max(90, Math.min(hidden?560:520, v*(Math.random()<0.5?0.72:1.32)));
+    const fastOK = (tierNow()>=5);   // 高速掉落物只在石头之后的难度才允许出现
+    v = Math.max(90, Math.min(hidden?560:520, v*(fastOK ? (Math.random()<0.5?0.72:1.32) : 0.82)));
   }
   const obj={x:px,y:-24,r:rad,kind:kind,pts:pts,fruit:fruitPts(kind)>0, v:v};
   if(asTrap) obj.fzTrap=true;                 // 永久冻结物：外观永远是冰壳 + 红色感叹号
@@ -511,7 +527,7 @@ function update(dt){
         if(canW||canB){
           const pick=(canW&&canB)?(wxLast==='wind'?'blizzard':'wind'):(canW?'wind':'blizzard');
           if(pick==='wind') windWarn=0.7; else fogT=1.0;
-          wxLast=pick; wxGap=3+Math.random()*2;
+          wxLast=pick; wxGap=6+Math.random()*4;   // 天气间隔翻倍：6~10 秒
         }else{
           wxGap=1;
         }
@@ -858,10 +874,16 @@ function fruitColor(kind){
   return m[kind]||'#FFC107';
 }
 function drawFruit(p){
+  const size=Math.round(p.r*1.9);   // 比原来画大一点，emoji 的细节才看得清
+  const spr=FRUIT_SPR[p.kind];
+  if(spr){
+    const box=Math.round(size*1.28);
+    ctx.drawImage(spr, Math.round(p.x-box/2), Math.round(p.y-box/2), box, box);
+    return;
+  }
+  // 兜底：精灵还没生成时直接画 emoji
   ctx.save();
-  // 不加阴影；坐标取整，避免 emoji 画在半像素上发虚
   ctx.textAlign='center';ctx.textBaseline='middle';
-  const size=Math.round(p.r*1.7);
   ctx.font=size+'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
   ctx.fillText(FRUIT_EMOJI[p.kind]||'',Math.round(p.x),Math.round(p.y)+1);
   ctx.restore();
@@ -1035,10 +1057,10 @@ function drawIceBlock(p){
 function drawWindFx(){
   if(windWarn<=0 && windT<=0) return;
   const live=windT>0;
-  const baseA=live?0.5:0.30;
+  const baseA=live?0.28:0.16;      // 原来 0.5/0.3，压低后不再把掉落物洗白
   ctx.save();
   ctx.lineCap='round';
-  const n=6;
+  const n=4;
   for(let i=0;i<n;i++){
     const phase=(time*(live?0.55:0.3)+i*0.37)%1;
     const y0=H*0.06+ (i/n)*H*0.58 + phase*H*0.10;
@@ -1052,7 +1074,7 @@ function drawWindFx(){
     ctx.beginPath();
     ctx.moveTo(x0,y0);
     ctx.quadraticCurveTo(x0+windDir*len*0.5, y0+34, x0+windDir*len, y0+10);
-    ctx.strokeStyle=g;ctx.lineWidth=4.5;ctx.stroke();
+    ctx.strokeStyle=g;ctx.lineWidth=3;ctx.stroke();
   }
   ctx.restore();
 }function drawFogFx(){
@@ -1421,10 +1443,17 @@ function drawPearlRaw(p){
 }
 
 function drawPearl(p){
+  // 每颗掉落物都在干净的状态下绘制：强制不透明，防止任何漏掉的 restore 让它变淡
+  ctx.save();
+  ctx.globalAlpha=1;
+  ctx.shadowBlur=0;
+  ctx.shadowColor='rgba(0,0,0,0)';
+  ctx.globalCompositeOperation='source-over';
   const frozen = p.fz || p.fzTrap;
   if(frozen) drawIceBack(p);      // 先垫冰壳
   drawPearlRaw(p);                // 物品本体（清楚可见）
   if(frozen) drawIceFront(p);     // 再盖一层霜面/裂纹
+  ctx.restore();
 }
 function drawHud(){
   ctx.save();
@@ -1472,6 +1501,24 @@ function draw(){
 
   drawSparks(0.016);
   pearls.forEach(drawPearl);
+  if(DBG){
+    // 调试标注：每颗掉落物下面写状态，排查「变虚」时看这里
+    ctx.save();
+    ctx.globalAlpha=1;ctx.textAlign='center';ctx.textBaseline='top';
+    ctx.font='bold 9px monospace';
+    for(let i=0;i<pearls.length;i++){
+      const q=pearls[i];
+      const tag=q.kind+(q.fz?' F'+q.fz.toFixed(1):'')+(q.fzTrap?' TRAP':'');
+      ctx.fillStyle='rgba(0,0,0,.55)';
+      ctx.fillRect(q.x-24,q.y+q.r+2,48,11);
+      ctx.fillStyle='#7CFF9E';
+      ctx.fillText(tag,q.x,q.y+q.r+3);
+    }
+    ctx.font='bold 11px monospace';ctx.textAlign='left';
+    ctx.fillStyle='#7CFF9E';
+    ctx.fillText('a='+ctx.globalAlpha.toFixed(2)+' n='+pearls.length+' H='+Math.round(H)+' dpr='+Math.min(window.devicePixelRatio||1,3),12,H-14);
+    ctx.restore();
+  }
   drawCup();
   drawBursts();
   drawWindFx();
@@ -1769,13 +1816,29 @@ window.addEventListener('keydown',e=>{
   if(e.key==='ArrowRight'){keyCtrlT=0.25;moveTo(cupX+26);}
 });
 
+// 玩家 ID：自动生成 6 位随机数字，本机不重复（已用过的存在 localStorage）
+function randomId(){
+  const used=new Set();
+  try{ JSON.parse(localStorage.getItem('popsip_ids')||'[]').forEach(function(v){ used.add(String(v)); }); }catch(e){}
+  let id='';
+  for(let i=0;i<60;i++){
+    id=String(100000+Math.floor(Math.random()*900000));
+    if(!used.has(id)) break;
+  }
+  try{
+    used.add(id);
+    localStorage.setItem('popsip_ids', JSON.stringify(Array.from(used).slice(-500)));
+  }catch(e){}
+  return id;
+}
+function randomName(){ return nickName(); }   // 兼容旧调用
 // 昵称池：打开就随机填一个，客户可以直接用，也能自己改
 const NAME_A=['Cao Thủ','Thần Cú','Khách VIP','Trân Châu','Sữa Đá','Người Chơi','Cao Nhân','Tay Nhanh','Siêu Cú','Đường Đen'];
 const NAME_B=['Vui Vẻ','Bí Ẩn','May Mắn','Tốc Độ','Hạnh Phúc','Thần Thánh','Sành Điệu','Nhiệt Tình'];
-function randomName(){
+function nickName(){
   const a=NAME_A[Math.floor(Math.random()*NAME_A.length)];
   const b=Math.random()<0.6
-    ? String(Math.floor(1000+Math.random()*9000))       // 60% 用 4 位数字，方便店员念
+    ? String(Math.floor(1000+Math.random()*9000))
     : NAME_B[Math.floor(Math.random()*NAME_B.length)];
   return (a+' '+b).slice(0,14);
 }
@@ -1794,14 +1857,14 @@ function randomName(){
   }catch(e){}
 })();
 const nameEl=document.getElementById('name');
-nameEl.value=randomName().replace(/[0-9]/g,'').trim();
+nameEl.value=nickName().replace(/[0-9]/g,'').trim();
 let PLAYER_ID='';
 const pidEl=document.getElementById('pid');
 (function(){
   const cache=JSON.parse(localStorage.getItem('popsip_pid')||'null');
   function fallback(){
     if(cache&&cache.num) PLAYER_ID=cache.num;
-    if(!PLAYER_ID){ PLAYER_ID=Math.floor(1000+Math.random()*9000); }
+    if(!PLAYER_ID){ PLAYER_ID=Number(randomId()); }
     if(pidEl) pidEl.textContent='ID: '+PLAYER_ID;
   }
   fetch('https://popsip-rank.hw2948911.workers.dev/assign')
@@ -1816,10 +1879,10 @@ const pidEl=document.getElementById('pid');
     })
     .catch(fallback);
 })();
-document.getElementById('dice').onclick=()=>{ nameEl.focus(); nameEl.value=randomName().replace(/[0-9]/g,'').trim(); };
+document.getElementById('dice').onclick=()=>{ nameEl.focus(); nameEl.value=nickName().replace(/[0-9]/g,'').trim(); };
 document.getElementById('play').onclick=()=>{
   initAudio();
-  const nick=(document.getElementById('name').value||'').trim().replace(/[0-9]/g,'').slice(0,12)||randomName();
+  const nick=(document.getElementById('name').value||'').trim().replace(/[0-9]/g,'').slice(0,12)||nickName();
   playerName=(nick+' '+PLAYER_ID).slice(0,20);
   document.getElementById('start').classList.add('hide');
   document.getElementById('reward').classList.add('hide');
