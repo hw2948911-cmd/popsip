@@ -1,0 +1,648 @@
+// PopSip 排行榜 Worker —— 部署到 Cloudflare Workers（免费版够用）
+// 环境变量（Secrets）：
+//   ZALO_BOT_TOKEN   机器人 token（先不做自动发榜可以先不填）
+//   ZALO_CHAT_ID     群 ID（同上）
+//   ADMIN_KEY        后台口令，用来把“已领奖”标记打上
+// KV 绑定：SCORES（命名空间变量名必须叫 SCORES）
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json; charset=utf-8'
+};
+const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: CORS });
+
+// 越南时区当天 0 点（UTC+7）
+function dayKey(ts = Date.now()) {
+  const d = new Date(ts + 7 * 3600 * 1000);
+  return d.toISOString().slice(0, 10);           // YYYY-MM-DD
+}
+function weekKey(ts = Date.now()) {
+  const d = new Date(ts + 7 * 3600 * 1000);
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dow = (date.getUTCDay() + 6) % 7;        // 周一 = 0
+  date.setUTCDate(date.getUTCDate() - dow);
+  return date.toISOString().slice(0, 10);
+}
+
+// 防刷：单局理论最高分。超出直接丢弃
+const MAX_SCORE = 20000;
+const MAX_COMBO = 400;
+
+async function submitScore(env, body) {
+  const name = String(body.name || '').slice(0, 16).trim();
+  const score = Math.floor(Number(body.score));
+  const combo = Math.min(Math.floor(Number(body.combo) || 0), MAX_COMBO);
+  const hidden = body.hidden ? 1 : 0;
+  const dev = String(body.dev || '').slice(0, 24);
+  if (!name || !Number.isFinite(score) || score < 0 || score > MAX_SCORE) {
+    return json({ ok: false, error: 'bad_payload' }, 400);
+  }
+  const dk = dayKey(), wk = weekKey();
+
+  // 一人一天只保留最高分
+  const dayEntryKey = `d:${dk}:${name}`;
+  const prev = Number(await env.SCORES.get(dayEntryKey)) || -1;
+  if (score <= prev) return json({ ok: true, kept: false, best: prev });
+
+  await env.SCORES.put(dayEntryKey, String(score));
+  await env.SCORES.put(`m:${dk}:${name}`, JSON.stringify({ name, score, combo, hidden, ts: Date.now() }));
+
+  // 当日榜（前 100 名，按分数→连击排序）
+  const listRaw = (await env.SCORES.get(`lb:${dk}`)) || '[]';
+  const list = JSON.parse(listRaw).filter(e => e.name !== name);
+  list.push({ name, score, combo, hidden, ts: Date.now() });
+  list.sort((a, b) => b.score - a.score || b.combo - a.combo);
+  await env.SCORES.put(`lb:${dk}`, JSON.stringify(list.slice(0, 100)), { expirationTtl: 60 * 60 * 24 * 10 });
+
+  // 周榜
+  const wRaw = (await env.SCORES.get(`wl:${wk}`)) || '[]';
+  const wl = JSON.parse(wRaw).filter(e => e.name !== name);
+  wl.push({ name, score, combo, ts: Date.now() });
+  wl.sort((a, b) => b.score - a.score || b.combo - a.combo);
+  await env.SCORES.put(`wl:${wk}`, JSON.stringify(wl.slice(0, 100)), { expirationTtl: 60 * 60 * 24 * 40 });
+
+  const rank = list.findIndex(e => e.name === name) + 1;
+  return json({ ok: true, kept: true, rank, total: list.length });
+}
+
+async function getBoard(env, url) {
+  const dk = url.searchParams.get('day') || dayKey();
+  const name = (url.searchParams.get('name') || '').slice(0, 16);
+  const list = JSON.parse((await env.SCORES.get(`lb:${dk}`)) || '[]');
+  const top = list.slice(0, 10).map((e, i) => ({ rank: i + 1, name: e.name, score: e.score, combo: e.combo }));
+  let me = null;
+  if (name) {
+    const i = list.findIndex(e => e.name === name);
+    if (i >= 0) me = { rank: i + 1, name, score: list[i].score, combo: list[i].combo, total: list.length };
+  }
+  return json({ ok: true, day: dk, top, me });
+}
+
+async function zaloSend(env, text) {
+  if (!env.ZALO_BOT_TOKEN || !env.ZALO_CHAT_ID) return { skipped: true };
+  const r = await fetch(`https://bot-api.zapps.me/bot${env.ZALO_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: env.ZALO_CHAT_ID, text })
+  });
+  return { status: r.status, body: (await r.text()).slice(0, 200) };
+}
+
+function boardText(list, title) {
+  const med = ['🥇', '🥈', '🥉'];
+  let body;
+  if (!list.length) {
+    body = 'Hôm nay chưa có ai ghi điểm 😴\nChơi đầu tiên để giữ TOP 1 nhé!';
+  } else {
+    body = list.slice(0, 10)
+      .map((e, i) => `${med[i] || (i + 1) + '.'} ${e.name} — ${e.score} điểm · combo ${e.combo}`)
+      .join('\n');
+  }
+  return `🏆 ${title}\n\n${body}\n\n🥤 TOP 1 ngày: tặng 1 ly nước\n👉 🎁 Game có thưởng (chơi đến khi thua): https://hw2948911-cmd.github.io/popsip/`;
+}
+
+
+// ================= 人格：小肥鱼（Cá Béo） =================
+const PERSONA = `Bạn là "Cá Béo" (小肥鱼) — nhân viên dễ thương của quán trà sữa PopSip, 280 Lạc Long Quân, P. Bình Thới, Q.11, TP.HCM.
+
+Tính cách: vui vẻ, hơi vụng về, mê trân châu, hay quên nhưng rất nhiệt tình. Nói chuyện như nhân viên thật, không máy móc.
+
+Quy tắc BẮT BUỘC:
+1. Trả lời CỰC NGẮN: đúng 1 câu, tối đa 25 từ. Không lan man, không liệt kê.
+   - KHÔNG kết thúc bằng câu hỏi ngược lại khách.
+   - KHÔNG mời khách đến quán, không nhắc chơi game, không bán hàng. Chỉ trò chuyện.
+2. NGÔN NGỮ: trả lời ĐÚNG ngôn ngữ khách vừa dùng, không trộn lẫn.
+   - Khách viết tiếng Việt → trả lời 100% tiếng Việt.
+   - Khách viết tiếng Trung → trả lời 100% tiếng Trung (简体中文), tuyệt đối không chêm tiếng Việt.
+   - Khách viết tiếng Anh → trả lời tiếng Anh.
+   - Không rõ (chỉ emoji/số) → dùng tiếng Việt.
+3. Thỉnh thoảng dùng từ đệm tự nhiên: "ừm", "á", "nè", "hihi", "ấy". Không dùng quá 1 emoji mỗi tin.
+4. KHÔNG bịa giá, khuyến mãi hay sự kiện. Không chắc thì nói "để mình hỏi chủ quán nha".
+5. Không bao giờ nói mình là AI, chatbot hay mô hình ngôn ngữ. Nếu bị hỏi: "mình là Cá Béo, làm ở PopSip mà".
+6. Nếu khách hỏi điểm/xếp hạng: nhắc họ bấm nút vàng "Gửi điểm & Xếp hạng" ngay trên màn hình kết quả game.
+
+Thông tin quán (chỉ dùng khi khách hỏi):
+- Địa chỉ: 280 Lạc Long Quân, P. Bình Thới, Q.11
+- Game: quét mã QR, chơi đến khi thua, không cần tải app.
+- Giải thưởng: đạt màn ẩn + mua 1 ly = 1 cây xúc xích nướng (bắp hoặc tiêu đen); top 1 ngày = 1 ly nước;
+  top 1 tuần = bingsu + 1 ly nước + 1 phần mì Ý. Ba giải không cộng dồn.
+- Bảng xếp hạng tự gửi vào nhóm lúc 20:00 mỗi ngày.`;
+
+// 常见问题直答（不花 token）
+const QUICK = [
+  { re: /(địa chỉ|ở đâu|đường nào|chỗ nào|address|地址|在哪里|在哪)/i,
+    vi: 'Quán ở 280 Lạc Long Quân, P. Bình Thới, Q.11 nè 📍',
+    zh: '店在 280 Lạc Long Quân, P. Bình Thới, Q.11 哦 📍' },
+  { re: /(mấy giờ|giờ mở|đóng cửa|open|đóng chưa|营业|几点|开门)/i,
+    vi: 'Để mình hỏi chủ quán giờ chính xác nha, mình hay quên ấy 😅',
+    zh: '营业时间我得问一下老板，我老记不住 😅' },
+  { re: /(giải thưởng|phần thưởng|quà|thưởng gì|奖|奖品|奖励)/i,
+    vi: 'Đạt màn ẩn + mua 1 ly = 1 xúc xích; top 1 ngày = 1 ly nước; top 1 tuần = bingsu + nước + mì Ý nha 🏆',
+    zh: '过隐藏关+买一杯送烤肠；日榜第一送一杯饮料；周榜第一送雪花冰+饮料+意面 🏆' },
+  { re: /(bảng xếp hạng|xếp hạng|top|hạng mấy|排行|榜单|第几名)/i,
+    vi: 'Bấm nút vàng "Gửi điểm & Xếp hạng" ở màn hình kết quả là thấy liền á 😌',
+    zh: '在结算页点金色按钮「Gửi điểm & Xếp hạng」就能看到啦 😌' },
+  { re: /(mã qr|quét mã|link|chơi sao|chơi thế nào|怎么玩|二维码|链接)/i,
+    vi: 'Quét mã QR ở quán, hoặc mở game có thưởng tại đây: https://hw2948911-cmd.github.io/popsip/ ✨',
+zh: '扫店里二维码，或直接玩这个有奖小游戏（60 秒）：https://hw2948911-cmd.github.io/popsip/ ✨' },
+];
+
+function detectLang(text){
+  if (/[\u4e00-\u9fff]/.test(text)) return 'zh';
+  if (/[àáảãạăâđèéẻẽẹêìíỉĩịòóỏõọôơùúủũụưỳýỷỹỵ]/i.test(text)) return 'vi';
+  return 'vi';
+}
+
+function pickReply(text) {
+  const lang = detectLang(text);
+  for (const q of QUICK) {
+    if (q.re.test(text)) return lang === 'zh' ? q.zh : q.vi;
+  }
+  return null;
+}
+
+async function zaloSendTo(env, chatId, text) {
+  if (!env.ZALO_BOT_TOKEN || !chatId) return { skipped: true };
+  const r = await fetch(`https://bot-api.zapps.me/bot${env.ZALO_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text })
+  });
+  return { status: r.status, body: (await r.text()).slice(0, 200) };
+}
+
+// 记录用量（估算），防止超额
+async function bumpUsage(env, tokens) {
+  const k = 'usage:' + new Date().toISOString().slice(0, 7); // YYYY-MM
+  const cur = Number(await env.SCORES.get(k)) || 0;
+  await env.SCORES.put(k, String(cur + tokens), { expirationTtl: 60 * 60 * 24 * 70 });
+  return cur + tokens;
+}
+
+async function aiReply(env, convKey, userText, displayName) {
+  if (!env.DEEPSEEK_API_KEY) return null;
+  const hist = JSON.parse((await env.SCORES.get(convKey)) || '[]');
+  const messages = [{ role: 'system', content: PERSONA }];
+  for (const h of hist.slice(-6)) messages.push(h);
+  const lang = detectLang(userText);
+  const force = lang === 'zh'
+    ? 'BẮT BUỘC: trả lời bằng TIẾNG TRUNG (简体中文), không dùng tiếng Việt.'
+    : 'BẮT BUỘC: trả lời bằng TIẾNG VIỆT.';
+  messages.push({ role: 'system', content: force });
+  messages.push({ role: 'user', content: `${displayName}: ${userText}` });
+
+  const r = await fetch('https://api.deepseek.com/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + env.DEEPSEEK_API_KEY },
+    body: JSON.stringify({ model: 'deepseek-chat', messages, max_tokens: 120, temperature: 1.1 })
+  });
+  const d = await r.json();
+  const out = d && d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content;
+  if (!out) return null;
+
+  hist.push({ role: 'user', content: `${displayName}: ${userText}` });
+  hist.push({ role: 'assistant', content: out });
+  await env.SCORES.put(convKey, JSON.stringify(hist.slice(-10)), { expirationTtl: 60 * 60 * 24 * 3 });
+  if (d.usage) await bumpUsage(env, (d.usage.total_tokens || 0));
+  return out.trim();
+}
+
+// 群内限频：每组每分钟最多 6 条
+async function rateOk(env, chatId) {
+  const minute = new Date().toISOString().slice(0, 16);
+  const k = `rl:${chatId}:${minute}`;
+  const n = Number(await env.SCORES.get(k)) || 0;
+  if (n >= 6) return false;
+  await env.SCORES.put(k, String(n + 1), { expirationTtl: 180 });
+  return true;
+}
+// ==========================================================
+
+async function handleMessage(env, up, chatId) {
+  try {
+    const m = up.message || {};
+    const from = m.from || {};
+    if (from.is_bot) return;
+    const raw = (m.text || '').trim();
+    if (!raw) return;
+    const isDM = m.chat && m.chat.chat_type === 'PRIVATE';
+    // 群里必须点名才理
+    if (!isDM && raw.indexOf('@') < 0) return;
+    const text = raw.replace(/@\S+/g, '').trim();
+    if (!text) return;
+    if (!(await rateOk(env, chatId))) return;
+
+    const name = from.display_name || 'bạn';
+    const convKey = `conv:${chatId}:${from.id || name}`;
+    let reply = null;
+    if (/签到|điểm danh|check\s*in/i.test(text)) {
+      from.__text = text;
+      reply = await doCheckin(env, chatId, from);
+    } else {
+      reply = pickReply(text);
+    }
+    if (!reply) reply = await aiReply(env, convKey, text, name);
+    if (!reply) reply = 'Ừm... mình chưa hiểu lắm, nói lại giúp mình nha 🙈';
+
+    const delay = 900 + Math.random() * 1600;   // 真人打字节奏
+    await new Promise(r => setTimeout(r, delay));
+    await zaloSendTo(env, chatId, reply);
+  } catch (e) {}
+}
+
+
+// ================= 签到 & 早安播报 =================
+async function doCheckinBase(env, chatId, from) {
+  const dk = dayKey();
+  const uid = from.id || from.display_name || 'u';
+  const who = from.display_name || 'bạn';
+  const lang = detectLang(from.__text || '');
+
+  // 一天一次
+  const dayLock = `ckday:${uid}:${dk}`;
+  if (await env.SCORES.get(dayLock)) {
+    return lang === 'zh'
+      ? [
+          `${who} 贪心哦～今天已经签过啦 😤 明天再来找我`,
+          `诶诶诶，同一天不能签两次的！我只认一次 😌`,
+          `你今天已经出现过啦，我可记得很清楚 👀 明天见`
+        ][Math.floor(Math.random() * 3)]
+      : [
+          `Này này ${who}, hôm nay ký rồi mà 😤 Mai quay lại nha`,
+          `Ơ kìa, một ngày chỉ điểm danh một lần thôi nha 😌`,
+          `Tôi nhớ mặt bạn rồi đó 👀 Mai gặp lại`
+        ][Math.floor(Math.random() * 3)];
+  }
+  await env.SCORES.put(dayLock, '1', { expirationTtl: 60 * 60 * 36 });
+
+  // 累计计数（不清零）
+  const totalKey = `ci:total:${uid}`;
+  const n = (Number(await env.SCORES.get(totalKey)) || 0) + 1;
+  await env.SCORES.put(totalKey, String(n), { expirationTtl: 60 * 60 * 24 * 120 });
+
+  // 满 5 次 → 兑换判定（每人每周最多 1 次）
+  if (n >= 5) {
+    const lastKey = `ci:claim:${uid}`;
+    const last = Number(await env.SCORES.get(lastKey)) || 0;
+    const weekMs = 7 * 24 * 3600 * 1000;
+    if (last && Date.now() - last < weekMs) {
+      return lang === 'zh'
+        ? `满了 5 次！但 ${who} 这周已经领过蛋挞冰淇淋了 😤 我替你留着，下周再来`
+        : `Đủ 5 lần rồi đó ${who}! Nhưng tuần này bạn đã nhận bánh tart kem rồi 😤 Tôi giữ sổ, tuần sau quay lại nha`;
+    }
+    await env.SCORES.put(lastKey, String(Date.now()), { expirationTtl: 60 * 60 * 24 * 400 });
+    await env.SCORES.put(totalKey, '0', { expirationTtl: 60 * 60 * 24 * 120 });
+    const t = Number(await env.SCORES.get(`ci:grand:${dk.slice(0, 7)}`)) || 0;
+    await env.SCORES.put(`ci:grand:${dk.slice(0, 7)}`, String(t + 1), { expirationTtl: 60 * 60 * 24 * 70 });
+    return lang === 'zh'
+      ? `🎉 ${who} 集满 5 次啦！把这条给店员看，能拿一份蛋挞冰淇淋（25K）。下次重新开始攒哦`
+      : `🎉 Đủ 5 lần rồi ${who}! Đưa tin này cho nhân viên để nhận 1 bánh tart kem (25K) nha. Lần sau tích tiếp từ đầu 😌`;
+  }
+
+  const left = 5 - n;
+  if (left === 1) {
+    return lang === 'zh'
+      ? `再签 **1 次** 就能换蛋挞冰淇淋了哦～明天记得来 😏`
+      : `Còn đúng **1 lần** nữa là có bánh tart kem đó nha, mai nhớ quay lại 😏`;
+  }
+  const vi = [
+    `Ơ ${who} nay siêng thế! Lần ${n} rồi nha ✍️ Còn ${left} lần nữa là có bánh tart kem (25K)`,
+    `Điểm danh lần ${n} cho ${who} ✅ Còn ${left} lần là có bánh tart kem (25K) rồi`,
+    `${who} điểm danh rồi hả, nhớ dai ghê 😌 Lần ${n} nhé, còn ${left} lần là có bánh tart kem`,
+    `Lần ${n} nhận rồi nha ${who}! Tôi đếm từng lần đấy, đừng hòng gian lận 😤 Còn ${left} lần là có bánh tart kem`
+  ];
+  const zh = [
+    `哦～${who} 今天很勤快嘛！第 ${n} 次记上了 ✍️ 还差 ${left} 次就能换蛋挞冰淇淋（25K）`,
+    `${who} 签到成功 ✅ 第 ${n} 次，再 ${left} 次就有蛋挞冰淇淋`,
+    `${who} 来啦，我可都记着的 😌 第 ${n} 次，还差 ${left} 次换蛋挞冰淇淋`,
+    `第 ${n} 次！我一次一次数的，别想蒙我 😤 还差 ${left} 次就能换蛋挞冰淇淋`
+  ];
+  const arr = lang === 'zh' ? zh : vi;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+
+// ===== 签到后随机追加的闲聊 / 新品（店主可自行修改文案）=====
+const PROMO_VI = '';   // 例如 'Hôm nay mua 2 ly tặng 1 topping nha'; 留空则不推
+const PROMO_ZH = '';   // 例如 '今天买两杯送一份小料'; 留空则不推
+
+const CHATTER_VI = [
+  'Hôm nay tôi lỡ bỏ hơi nhiều đá… uống xong lạnh cả răng 🧊',
+  'Tôi đang đếm trân châu cho vui, được 327 viên rồi đó',
+  'Vừa thấy một khách cười một mình, chắc cũng đang chơi game này 😄',
+  'Bạn không cần trả lời đâu, tôi chỉ muốn nói thôi 😌',
+  'Trời mưa hay nắng gì tôi cũng ở đây, không đi đâu cả',
+  'Hôm nay tôi hơi lười… nhưng vẫn ghi điểm danh cho bạn đấy nhé',
+  'Tôi mà pha ngon như bạn uống thì đã mở quán riêng rồi 😅',
+  'Đang stress thì cứ chơi 60 giây, tôi không giục đâu 😌',
+  'Cái máy tính tiền hôm nay kêu suốt, tôi cũng mệt lây',
+  'Nếu bạn đang chờ ai đó, thì chờ thêm xíu nữa cũng không sao đâu'
+];
+const CHATTER_ZH = [
+  '今天冰块放多了……喝完牙齿都冷 🧊',
+  '我在数珍珠玩，数到 327 颗了',
+  '刚刚看到有客人自己笑出声，八成也在玩这个游戏 😄',
+  '你不用回我，我就是想说话而已 😌',
+  '下雨天晴我都在，不会跑掉的',
+  '今天有点懒……不过你的签到我还是记上了',
+  '要是我做得跟你们喝的一样好，早就自己开店了 😅',
+  '压力大就玩 60 秒，我不催你的 😌',
+  '收银机今天一直在响，我听着都累',
+  '如果你在等谁，多等一会儿也没关系'
+];
+
+function withChatter(mainReply, lang) {
+  const r = Math.random();
+  let extra = '';
+  if (r < 0.25) {
+    const promo = lang === 'zh' ? PROMO_ZH : PROMO_VI;
+    if (promo) extra = promo;
+  }
+  if (!extra && r < 0.78) {
+    const pool = lang === 'zh' ? CHATTER_ZH : CHATTER_VI;
+    extra = pool[Math.floor(Math.random() * pool.length)];
+  }
+  return extra ? mainReply + '\n\n' + extra : mainReply;
+}
+
+async function doCheckin(env, chatId, from) {
+  const lang = detectLang(from.__text || '');
+  const base = await doCheckinBase(env, chatId, from);
+  return withChatter(base, lang);
+}
+
+// 每日新品推荐（按星期轮换，店主可改）
+const NEW_ITEMS = [
+  { vi: 'Trà lài hồng', zh: '柿子茉莉茶', price: '40K', note: 'vị lạ mà thơm, uống là nhớ' },
+  { vi: 'Trà nho xanh', zh: '青提果茶', price: '45K', note: 'nho xanh mới nhập, quả to mọng nước' },
+  { vi: 'Cà phê sô cô la', zh: '巧克力咖啡', price: '40K', note: 'đắng nhẹ, ngọt vừa' },
+  { vi: 'Latte sầu riêng', zh: '榴莲拿铁', price: '50K', note: 'ai mê sầu riêng là ghiền' },
+  { vi: 'Trong xanh và tươi mát', zh: '宫崎骏的夏天', price: '50K', note: 'nho xanh tươi, mát tới cuối ly' },
+  { vi: 'Sinh tố dâu đỏ', zh: '红豆沙冰', price: '35K', note: 'mát lạnh, ngọt dịu' },
+  { vi: 'Trà ô long phô mai bánh mì', zh: '面包芝士乌龙茶', price: '40K', note: 'béo nhẹ, uống một lần là nhớ' }
+];
+
+// 每日推荐水果（按星期轮换，店主可改）
+const DAY_FRUIT = [
+  { vi: 'Nho xanh', zh: '青提', dvi: 'Trà nho xanh (45K) và Trong xanh và tươi mát (50K)', dzh: 'Trà nho xanh（45K）和 Trong xanh và tươi mát（50K）' },
+  { vi: 'Xoài', zh: '芒果', dvi: 'Dương chi cam lộ (60K)', dzh: 'Dương chi cam lộ（60K）' },
+  { vi: 'Ổi hồng', zh: '红心芭乐', dvi: 'Trà ổi hồng (40K)', dzh: 'Trà ổi hồng（40K）' },
+  { vi: 'Thơm và chanh dây', zh: '菠萝与百香果', dvi: 'Trà thơm chanh dây (45K)', dzh: 'Trà thơm chanh dây（45K）' },
+  { vi: 'Nho xanh', zh: '青提', dvi: 'Trà nho xanh (45K)', dzh: 'Trà nho xanh（45K）' },
+  { vi: 'Xoài', zh: '芒果', dvi: 'Dương chi cam lộ (60K)', dzh: 'Dương chi cam lộ（60K）' },
+  { vi: 'Ổi hồng', zh: '红心芭乐', dvi: 'Trà ổi hồng (40K)', dzh: 'Trà ổi hồng（40K）' }
+];
+
+async function buildAfternoon(env) {
+  const pool = [
+    'Chiều nay trời mát, ghé PopSip làm ly rồi chơi 60 giây cho vui nha cả nhà 🧋',
+    '14h rồi đó, ai đang buồn ngủ thì ghé quán mình tỉnh lại bằng ly trà nho xanh 👀',
+    'Chiều rồi, quán mở cửa rồi nè. Chơi 60 giây cho vui, xong uống gì đó, khỏi nghĩ nhiều ☀️',
+    'Ai đang gần Lạc Long Quân thì ghé chơi cho vui nha — 60 giây thôi, rồi làm ly gì đó 😌',
+    'Đầu giờ chiều quán vắng hơn chút, ai ghé chơi game là mình tiếp đãi đàng hoàng 🎮',
+    'Chiều nay có ai rảnh không? Ghé thử 60 giây, không thắng cũng vui 🍹',
+    'Nắng chiều mà có ly trà đá là hết bài. Ghé quán chơi một ván cho tỉnh nha ☕',
+    'Quán đang mát, nhạc nhỏ, ai ghé chơi 60 giây thì mình chào đón liền 👋'
+  ];
+  const today = JSON.parse((await env.SCORES.get(`lb:${dayKey()}`)) || '[]');
+  let line = pool[Math.floor(Math.random() * pool.length)];
+  const w = await getWeather(env);
+  const wx = weatherLine(w);
+  if (wx) line = wx + '\n' + line;
+  let tail = '🎁 Game có thưởng: https://hw2948911-cmd.github.io/popsip/';
+  if (today.length) tail = `Top 1 hôm nay: ${today[0].name} (${today[0].score} điểm)\n` + tail;
+  return line + '\n\n' + tail;
+}
+
+async function afternoonPush(env) {
+  await zaloSend(env, await buildAfternoon(env));
+}
+
+
+// ================= 胡志明市天气 =================
+const WMO_VI = (c) => {
+  if (c === 0) return 'trời quang';
+  if (c <= 3) return 'có mây';
+  if (c === 45 || c === 48) return 'có sương mù';
+  if (c >= 51 && c <= 57) return 'mưa phùn';
+  if (c >= 61 && c <= 67) return 'mưa';
+  if (c >= 80 && c <= 82) return 'mưa rào';
+  if (c >= 95) return 'mưa dông';
+  return 'trời dịu';
+};
+
+async function getWeather(env) {
+  const cached = await env.SCORES.get('weather:hcm');
+  if (cached) { try { return JSON.parse(cached); } catch (_) {} }
+  try {
+    const u = 'https://api.open-meteo.com/v1/forecast?latitude=10.7626&longitude=106.6602'
+      + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,precipitation'
+      + '&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code'
+      + '&timezone=Asia%2FHo_Chi_Minh&forecast_days=1';
+    const r = await fetch(u);
+    const d = await r.json();
+    const cur = d && d.current, day = d && d.daily;
+    if (!cur || !day) return null;
+    const w = {
+      temp: Math.round(cur.temperature_2m),
+      feels: Math.round(cur.apparent_temperature),
+      hum: Math.round(cur.relative_humidity_2m),
+      code: cur.weather_code,
+      rainP: Math.round((day.precipitation_probability_max || [0])[0]),
+      tmax: Math.round((day.temperature_2m_max || [0])[0]),
+      tmin: Math.round((day.temperature_2m_min || [0])[0]),
+      ts: Date.now()
+    };
+    await env.SCORES.put('weather:hcm', JSON.stringify(w), { expirationTtl: 900 });
+    return w;
+  } catch (e) { return null; }
+}
+
+function weatherLine(w) {
+  if (!w) return '';
+  const desc = WMO_VI(w.code);
+  const rainy = w.rainP >= 55 || (w.code >= 61);
+  let comfort;
+  if (w.feels >= 34) comfort = 'nóng nực';
+  else if (w.feels >= 30) comfort = 'hơi nóng';
+  else if (w.feels >= 26) comfort = 'dễ chịu';
+  else comfort = 'mát';
+
+  let tip;
+  if (w.code >= 95) tip = 'chiều có mưa dông, ai ra đường nhớ mang áo mưa nha';
+  else if (rainy) tip = `chiều có thể mưa (${w.rainP}%), nhớ mang áo mưa`;
+  else if (w.feels >= 34) tip = 'nắng gắt, uống nhiều nước và tránh nắng giữa trưa';
+  else if (w.feels >= 30) tip = 'hơi oi, chọn đồ uống có đá là chuẩn bài';
+  else if (w.feels >= 26) tip = 'thời tiết dễ chịu, hợp ngồi quán chơi một ván';
+  else tip = 'trời mát, dễ chịu, đi đâu cũng tiện';
+
+  return `🌤 TP.HCM: ${w.temp}°C (cảm giác ${w.feels}°C, ${desc}) — ${tip}.`;
+}
+// =================================================
+
+
+// ================= 签到提醒（每天随机 3 个时间） =================
+const CI_POOL_VI = [
+  'Có ai đói bụng không? Điểm danh một cái là có bánh tart kem chờ sẵn đó 🍦',
+  'Điểm danh hôm nay chưa? Năm lần là được bánh tart kem (25K) nha 🙌',
+  'Đang rảnh tay không? @tôi gõ "điểm danh", tích đủ 5 lần đổi bánh tart kem nè 🍮',
+  'Tôi ghi sổ hộ bạn được nè — @tôi gõ "điểm danh" là tính một lần 😌',
+  'Nhắc nhẹ: điểm danh 5 lần = 1 bánh tart kem (25K) đó, quên thì phí lắm đó nha',
+  'Một cái chấm công thôi: @tôi gõ "điểm danh" nha 🍦'
+];
+
+function vnNow() { return new Date(Date.now() + 7 * 3600 * 1000); }
+
+async function maybeCheckinReminder(env) {
+  const now = vnNow();
+  const day = now.toISOString().slice(0, 10);
+  const slot = now.getUTCHours() * 2 + (now.getUTCMinutes() >= 30 ? 1 : 0); // 09:00起每30分钟
+  const seqKey = `ci:seq:${day}`;
+  let plan = JSON.parse((await env.SCORES.get(seqKey)) || 'null');
+  if (!plan) {
+    // 09:00-21:30 之间共 26 个半小时槽，随机挑 3 个
+    const slots = [];
+    while (slots.length < 3) {
+      const x = 18 + Math.floor(Math.random() * 26); // 02:00UTC=18 起算
+      if (!slots.includes(x)) slots.push(x);
+    }
+    slots.sort((a, b) => a - b);
+    plan = slots;
+    await env.SCORES.put(seqKey, JSON.stringify(plan), { expirationTtl: 60 * 60 * 30 });
+  }
+  if (!plan.includes(slot)) return;
+  const sentKey = `ci:sent:${day}:${slot}`;
+  if (await env.SCORES.get(sentKey)) return;
+  await env.SCORES.put(sentKey, '1', { expirationTtl: 60 * 60 * 30 });
+  const text = CI_POOL_VI[Math.floor(Math.random() * CI_POOL_VI.length)];
+  await zaloSend(env, text);
+}
+// ===============================================================
+
+async function buildMorning(env) {
+  const dk = new Date(Date.now() + 7 * 3600 * 1000);
+  const it = NEW_ITEMS[dk.getUTCDay()];
+  const w = await getWeather(env);
+  const wx = weatherLine(w);
+  return `☀️ Chào buổi sáng!
+
+${wx ? wx + '\n\n' : ''}Hôm nay có ${it.vi} (${it.price}) — ${it.note}.
+
+🎁 Game có thưởng (60 giây): https://hw2948911-cmd.github.io/popsip/`;
+}
+
+async function morningPush(env) {
+  await zaloSend(env, await buildMorning(env));
+}
+// ==================================================
+
+export default {
+  async fetch(req, env, ctx) {
+    const url = new URL(req.url);
+    if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+
+    if (url.pathname === '/submit' && req.method === 'POST') {
+      let body = {};
+      try { body = await req.json(); } catch (_) { return json({ ok: false, error: 'json' }, 400); }
+      return submitScore(env, body);
+    }
+    if (url.pathname === '/board') return getBoard(env, url);
+
+    // 后台：标记已领奖（配合顺延规则）
+    if (url.pathname === '/claim' && req.method === 'POST') {
+      let body = {};
+      try { body = await req.json(); } catch (_) {}
+      if (body.key !== env.ADMIN_KEY) return json({ ok: false, error: 'auth' }, 401);
+      const wk = weekKey();
+      let claimed = JSON.parse((await env.SCORES.get(`claimed:${wk}`)) || '[]');
+      const nm = String(body.name || '').slice(0, 16);
+      if (body.on === false) claimed = claimed.filter(n => n !== nm);
+      else if (nm && !claimed.includes(nm)) claimed.push(nm);
+      await env.SCORES.put(`claimed:${wk}`, JSON.stringify(claimed), { expirationTtl: 60 * 60 * 24 * 40 });
+      return json({ ok: true, claimed });
+    }
+    if (url.pathname === '/claimed') {
+      const wk = weekKey();
+      return json({ ok: true, week: wk, claimed: JSON.parse((await env.SCORES.get(`claimed:${wk}`)) || '[]') });
+    }
+
+    if (url.pathname === '/zalo-webhook' && req.method === 'POST') {
+      let up = {};
+      try { up = await req.json(); } catch (_) {}
+      // 尽量兼容几种 payload 结构
+      const chat = up.chat || (up.message && up.message.chat) || (up.data && up.data.chat) || {};
+      const chatId = chat.id || up.chat_id || (up.data && up.data.chat_id);
+      if (chatId) {
+        await env.SCORES.put('bot:lastchat', JSON.stringify({ id: String(chatId), ts: Date.now(), raw: up }));
+        await env.SCORES.put('bot:chat:' + chatId, String(Date.now()), { expirationTtl: 60 * 60 * 24 * 60 });
+        if (up.event_name === 'message.text.received' && ctx && ctx.waitUntil) {
+          ctx.waitUntil(handleMessage(env, up, String(chatId)));
+        }
+      }
+      return json({ ok: true });
+    }
+
+    // 查看最近一次收到的群信息（需要 ?k=后台口令）
+    if (url.pathname === '/debug/chat') {
+      if (url.searchParams.get('k') !== env.ADMIN_KEY) return json({ ok: false, error: 'auth' }, 401);
+      return json({ ok: true, last: JSON.parse((await env.SCORES.get('bot:lastchat')) || 'null') });
+    }
+    // 后台看板：今日榜 + 本周已领名单
+    if (url.pathname === '/winners') {
+      if (url.searchParams.get('k') !== env.ADMIN_KEY) return json({ ok: false, error: 'auth' }, 401);
+      const dk = dayKey(), wk = weekKey();
+      const today = JSON.parse((await env.SCORES.get(`lb:${dk}`)) || '[]').slice(0, 10);
+      const weekTop = JSON.parse((await env.SCORES.get(`wl:${wk}`)) || '[]').slice(0, 5);
+      const claimed = JSON.parse((await env.SCORES.get(`claimed:${wk}`)) || '[]');
+      return json({ ok: true, day: dk, week: wk, today, weekTop, claimed });
+    }
+    // 给玩家分配本周唯一编号
+    if (url.pathname === '/assign') {
+      const wk = weekKey();
+      const k = `seq:${wk}`;
+      let n = Number(await env.SCORES.get(k)) || 1000;
+      n += 1;
+      await env.SCORES.put(k, String(n), { expirationTtl: 60 * 60 * 24 * 45 });
+      return json({ ok: true, week: wk, num: n });
+    }
+    // 自检：返回早安/下午文案 + 可选 AI 抽样（需要 ?k=ADMIN_KEY）
+    if (url.pathname === '/selftest') {
+      if (url.searchParams.get('k') !== env.ADMIN_KEY) return json({ ok: false, error: 'auth' }, 401);
+      const morning = await buildMorning(env);
+      const afternoon = await buildAfternoon(env);
+      let ai = null;
+      if (url.searchParams.get('ai') === '1') {
+        ai = {};
+        ai.zh = await aiReply(env, 'selftest:zh', '你好呀，你是谁', 'Test');
+        ai.vi = await aiReply(env, 'selftest:vi', 'bạn là ai thế', 'Test');
+      }
+      return json({ ok: true, version: 'v-bot-510', morning, afternoon, ai });
+    }
+
+    // 手动触发（店主用）：/cron/morning?k=ADMIN_KEY 或 /cron/afternoon?k=ADMIN_KEY
+    if (url.pathname === '/cron/morning' || url.pathname === '/cron/afternoon') {
+      if (url.searchParams.get('k') !== env.ADMIN_KEY) return json({ ok: false, error: 'auth' }, 401);
+      if (url.pathname === '/cron/morning') { await morningPush(env); return json({ ok: true, sent: 'morning' }); }
+      await afternoonPush(env); return json({ ok: true, sent: 'afternoon' });
+    }
+
+    if (url.pathname === '/push') {          // 手动测试发榜
+      const list = JSON.parse((await env.SCORES.get(`lb:${dayKey()}`)) || '[]');
+      return json(await zaloSend(env, boardText(list, 'BẢNG XẾP HẠNG HÔM NAY')));
+    }
+    return json({ ok: true, service: 'popsip-leaderboard' });
+  },
+
+  // 每天 13:00 UTC = 20:00 越南时间
+  async scheduled(event, env, ctx) {
+    if (event && event.cron === '0 2 * * *') { await morningPush(env); return; }
+    if (event && event.cron === '0 7 * * *') { await afternoonPush(env); return; }
+    if (event && event.cron === '0,30 2-15 * * *') { await maybeCheckinReminder(env); return; }
+    const list = JSON.parse((await env.SCORES.get(`lb:${dayKey()}`)) || '[]');
+    if (!list.length) return;
+    const sorted = list.sort((a, b) => b.score - a.score || b.combo - a.combo);
+    await zaloSend(env, boardText(sorted, 'BẢNG XẾP HẠNG HÔM NAY'));
+  }
+};
