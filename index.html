@@ -232,6 +232,8 @@ const CFG={
   missAllowed:5,       // 前 60 秒最多漏几个
   cupW:68, cupH:86,    // 杯子尺寸
   cupSpeed:1500,       // 杯子最大移速（防刷屏）
+  cupGain:10,          // 打滑：跟手强度（越大越贴手，越小越飘）
+  cupFriction:15,      // 打滑：松手后的摩擦（越大停得越快）
   catchBandDiv:4,      // 纵向判定 = 杯高 / 这个数
   catchW:0.40, catchR:0.35, // 横向判定
   gapMin:0.30, gapBase:1.10, gapLv:0.045, gapTime:0.010, // 出球间隔
@@ -263,8 +265,9 @@ let cw=cupW;                 // 当前杯口宽度（隐藏关变窄）
 
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
 /* ===== 无尽模式状态 ===== */
-const HP_MAX=10, GATES=[100,350,700,1150,1700];
+const HP_MAX=10, GATES=[100,260,480,780,1150,1600,2100,2700];   // 隐藏关门槛：缩短周期，后面继续加
 const BOUNCE_V=115;   // 果冻回弹与回弹后下落的速度：等于游戏刚开始时的下落速度
+const ICE_SPLIT=false;  // 冰块分裂开关（暂时关闭，改 true 恢复）
 let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0;
 let windCd=9, windT=0, windWarn=0, windDir=1, blizCd=26, fogT=0;
 const FRUIT_TIERS=[
@@ -361,7 +364,7 @@ function reset(){
   score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;pairUsed=false;cw=cupW;
   lastSpawnKind='';lastKindRun=0;
   hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; windT=0; windWarn=0; windCd=8+Math.random()*4; blizCd=24+Math.random()*8; fogT=0;
-  cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;
+  cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupV=0;keyCtrlT=0;
   for(let i=0;i<3;i++){
     const k=pickKind();
     pearls.push({x:40+Math.random()*(W-80),y:H*(0.20+i*0.13)+(Math.random()*34-17),
@@ -420,8 +423,13 @@ function update(dt){
   const vNow = Math.min(hidden?520:330, baseV*burst*(hidden?1.25:1));
 
   // 出球间隔：越到后面略密，但保持呼吸感
-  let gap = Math.max(0.62, 1.02 - Math.min(0.30, time*0.0012));
-  if(hidden) gap = 0.52;
+  let gap = Math.max(0.55, 1.02 - Math.min(0.30, time*0.0012));
+  if(hidden){
+    gap = 0.52;
+  }else if(hiddenCount>0){
+    // 隐藏关之后屏幕明显变密：每过一次隐藏关出球再快一档
+    gap = Math.max(0.42, gap*Math.max(0.60, 1-0.20*hiddenCount));
+  }
 
   // 风
   if(hiddenCount>=2 && !hidden){
@@ -435,9 +443,20 @@ function update(dt){
     else { blizCd-=dt; if(blizCd<=0){ fogT=1.0; blizCd=26+Math.random()*12; } }
   }
 
-  // 杯子
-  const step=CFG.cupSpeed*dt, dxc=cupTarget-cupX;
-  cupX += Math.abs(dxc)<=step ? dxc : (dxc>0?step:-step);
+  // 杯子（打滑：跟手带惯性，松手后会滑一小段才停）
+  const dxc=cupTarget-cupX;
+  if(dragging || keyCtrlT>0){
+    const want=Math.max(-CFG.cupSpeed, Math.min(CFG.cupSpeed, dxc*CFG.cupGain));
+    cupV += (want-cupV)*Math.min(1, dt*14);
+  }else{
+    cupV *= Math.exp(-dt*CFG.cupFriction);     // 松手后只剩摩擦
+    if(Math.abs(cupV)<6) cupV=0;
+  }
+  cupX += cupV*dt;
+  const halfCup=cw/2;
+  if(cupX<halfCup){ cupX=halfCup; if(cupV<0) cupV=0; }
+  if(cupX>W-halfCup){ cupX=W-halfCup; if(cupV>0) cupV=0; }
+  if(keyCtrlT>0) keyCtrlT=Math.max(0,keyCtrlT-dt);
   for(let bi=bursts.length-1;bi>=0;bi--){ bursts[bi].t+=dt; if(bursts[bi].t>0.5)bursts.splice(bi,1); }
 
   spawnT-=dt;
@@ -468,8 +487,8 @@ function update(dt){
     if(p.wdx && p.y<safeY && p.wt<0.7){
       p.x += p.wdx*dt/0.7; p.wt+=dt;
     }
-    // 冰块分裂
-    if(p.kind==='ice' && !p.split && p.y>Math.max(190,H*0.24)){
+    // 冰块分裂（暂时关闭：把 ICE_SPLIT 改回 true 就恢复）
+    if(ICE_SPLIT && p.kind==='ice' && !p.split && p.y>Math.max(190,H*0.24)){
       p.split=true;
       for(let k=0;k<2;k++){
         const ang=(Math.random()*0.78);           // 0~45 度
@@ -493,11 +512,22 @@ function update(dt){
     }
 
     const inZone=p.y+p.r>cupY&&p.y-p.r<cupY+cupH/CFG.catchBandDiv;
-    if(inZone&&Math.abs(p.x-cupX)<cw*CFG.catchW+p.r*CFG.catchR){
+    const aligned=inZone&&Math.abs(p.x-cupX)<cw*CFG.catchW+p.r*CFG.catchR;
+    // 布丁回弹上升期间不判定接住，等它落回来再算
+    if(aligned && !(p.kind==='pudding'&&p.up)){
       if(p.kind==='stone'){
         hp--; shake=14; sfxMiss(); toast('✖ ĐÁ! -1 ❤');
         pearls.splice(i,1);
         if(hp<=0){ startDying(); return; }
+        continue;
+      }
+      // 果冻弹跳：第一次碰到杯子不加分，先弹回上方；第二次接住才 +2
+      if(p.kind==='pudding' && !p.bounced){
+        const dir=Math.random()<0.5?-1:1;
+        p.bounced=true; p.up=true;
+        p.vx=dir*cw*1.2;        // 弹起时随机横向漂移，全程大约一个杯身宽
+        p.burst=0;
+        sparks.push({x:p.x,y:cupY,t:0});
         continue;
       }
       score+=p.pts; shake=9; sfxCatch();
@@ -512,10 +542,6 @@ function update(dt){
       bursts.push({x:p.x,y:cupY,t:0,pts:p.pts,kind:p.kind});
       pearls.splice(i,1);
       continue;
-    }
-    // 果冻弹跳：撞到杯口还没接住，就从杯口弹回上方一次（再漏才算漏）
-    if(p.kind==='pudding' && !p.bounced && !p.up && vy>0 && p.y+p.r>cupY){
-      p.up=true; sparks.push({x:p.x,y:cupY,t:0});
     }
     if(p.y-p.r>H){
       pearls.splice(i,1); shake=6; sfxMiss();
@@ -534,6 +560,7 @@ function applyCollisions(dt){
   for(let i=0;i<pearls.length;i++){
     const a=pearls[i];
     if(!a.vx) continue;
+    if(a.kind==='pudding') continue;     // 布丁回弹的横向漂移不参与碰撞，保持「一个杯身宽」的固定偏移
     active++;
     if(active>12) break;
     for(let j=0;j<pearls.length;j++){
@@ -1269,7 +1296,7 @@ function draw(){
     ctx.fillText(hidden?'✨ MÀN ẨN ✨':'🎉 MỞ KHÓA NÔNG SẢN MỚI',W/2,H*0.28);
     ctx.font='800 18px -apple-system,Roboto,sans-serif';
     ctx.fillStyle='#fff';
-    ctx.fillText(hidden?('10 giây · mỗi món +'+hiddenPts):'Thêm 3 loại trái cây',W/2,H*0.28+30);
+    ctx.fillText(hidden?('10 giây · mỗi món +'+hiddenPts):(hiddenCount>3?'Độ khó tăng!':'Thêm 3 loại trái cây'),W/2,H*0.28+30);
     ctx.restore();
   }
 
@@ -1552,6 +1579,8 @@ function gameOver(){
 
 let dragging=false;
 let cupTarget=0;
+let cupV=0;          // 杯子当前横向速度（打滑用）
+let keyCtrlT=0;      // 键盘操作的短暂控制窗口
 function moveTo(x){cupTarget=Math.max(cw/2+6,Math.min(W-cw/2-6,x));}
 cv.addEventListener('pointerdown',e=>{dragging=true;moveTo(e.clientX);});
 cv.addEventListener('pointermove',e=>{if(dragging)moveTo(e.clientX);});
@@ -1559,8 +1588,8 @@ cv.addEventListener('pointerup',()=>dragging=false);
 cv.addEventListener('pointercancel',()=>dragging=false);
 window.addEventListener('keydown',e=>{
   if(state!=='play')return;
-  if(e.key==='ArrowLeft')moveTo(cupX-26);
-  if(e.key==='ArrowRight')moveTo(cupX+26);
+  if(e.key==='ArrowLeft'){keyCtrlT=0.25;moveTo(cupX-26);}
+  if(e.key==='ArrowRight'){keyCtrlT=0.25;moveTo(cupX+26);}
 });
 
 // 昵称池：打开就随机填一个，客户可以直接用，也能自己改
