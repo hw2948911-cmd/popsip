@@ -273,7 +273,8 @@ const HIDDEN_SEC=15.04; // 隐藏关时长：对齐 Jingle Bells 一整轮（64 
 const ICE_SPLIT=false;  // 冰块分裂开关（暂时关闭，改 true 恢复）
 const ICE_SPAWN=false;  // 单独的冰块是否出现（false = 由暴风雪产出的「永久冻结物」代替它的惩罚作用）
 let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0, tierShown=0;
-let windCd=9, windT=0, windWarn=0, windDir=1, blizCd=26, fogT=0;
+let specialCd=4, specialLast='';
+let windT=0, windWarn=0, windDir=1, fogT=0, blizHold=0, wxGap=4, wxLast='';
 const FRUIT_TIERS=[
   [['grape','\uD83C\uDF47'],['mango','\uD83E\uDD6D'],['avocado','\uD83E\uDD51']],
   [['guava','\uD83C\uDF50'],['pineapple','\uD83C\uDF4D'],['passion','\uD83C\uDF4B']],
@@ -318,17 +319,11 @@ let lastSpawnKind='', lastKindRun=0;
 function rollKind(){
   if(hidden) return FEST[Math.floor(Math.random()*FEST.length)];
   const fr=unlockedFruits();
-  const stoneOn = tierNow()>=5;
-  if(stoneOn && Math.random()<0.08) return 'stone';
-  if(ICE_SPAWN && tierNow()>=3 && countOnScreen('ice')<1 && Math.random()<0.03) return 'ice';   // 冰块：第 3 档起出现（当前由暴风雪永久冻结物代替）
+  if(ICE_SPAWN && tierNow()>=3 && countOnScreen('ice')<1 && Math.random()<0.03) return 'ice';   // 冰块（当前关闭）
   const frChance = Math.min(0.36, fr.length*0.09);   // 防同款后种类变多，水果率压低一点防止分数暴涨
   if(fr.length && Math.random()<frChance) return fr[Math.floor(Math.random()*fr.length)];
   const r=Math.random();
-  if(r<0.06){                                   // 布丁：第 1 档（30 秒）起出现，同屏最多 1 个
-    if(tierNow()<1 || countOnScreen('pudding')>=1) return 'nata';   // 还没解锁 / 场上已有 1 个，就改出椰果
-    return 'pudding';
-  }
-  if(r<0.26) return 'nata';      // 椰果：1 分，开局就有，增加种类
+  if(r<0.26) return 'nata';      // 布丁改由计时器单独生成（30 秒后常驻一颗），不再随机出现
   if(r<0.44) return 'white';
   return 'pearl';
 }
@@ -384,7 +379,9 @@ function resize(){
 function reset(){
   score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;pairUsed=false;cw=cupW;
   lastSpawnKind='';lastKindRun=0;
-  hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; tierShown=0; windT=0; windWarn=0; windCd=8+Math.random()*4; blizCd=24+Math.random()*8; fogT=0;
+  hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; tierShown=0;
+  specialCd=3+Math.random()*2; specialLast='';
+  windT=0; windWarn=0; fogT=0; blizHold=0; wxGap=3+Math.random()*2; wxLast='';
   cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupV=0;keyCtrlT=0;cupLockT=0;
   for(let i=0;i<3;i++){
     const k=pickKind();
@@ -393,10 +390,10 @@ function reset(){
   }
 }
 
-function spawnPearl(){
+function spawnPearl(forceKind, asTrap){
   const top=pearls.reduce(function(m,q){return Math.min(m,q.y);},9999);
   if(top<gapY) return false;
-  const kind=pickKind();
+  const kind=forceKind||pickKind();
   spawnCount++;
   const pts=itemPts(kind), rad=itemRad(kind);
   const rush=Math.min(1.9,1+Math.max(0,time-10)*0.0022)*(hidden?1.25:1);
@@ -425,8 +422,15 @@ function spawnPearl(){
     if(!clash) break;
     v = Math.max(90, Math.min(hidden?560:520, v*(Math.random()<0.5?0.72:1.32)));
   }
-  pearls.push({x:px,y:-24,r:rad,kind:kind,pts:pts,fruit:fruitPts(kind)>0, v:v});
+  const obj={x:px,y:-24,r:rad,kind:kind,pts:pts,fruit:fruitPts(kind)>0, v:v};
+  if(asTrap) obj.fzTrap=true;                 // 永久冻结物：外观永远是冰壳 + 红色感叹号
+  pearls.push(obj);
   return true;
+}
+function spawnPearlAsTrap(){
+  let k=pickKind(), guard=0;
+  while((k==='stone'||k==='ice'||k==='pudding') && guard++<12) k=pickKind();
+  return spawnPearl(k,true);
 }
 
 function update(dt){
@@ -445,7 +449,6 @@ function update(dt){
     hiddenT-=dt;
     if(hiddenT<=0){
       hidden=false; hiddenCount++; cw=cupCwNormal(); stopXmas();
-      blizCd=Math.max(8,blizCd-4);
     }
   }else{
     if(hiddenCount<1 && score>=HIDDEN_AT){
@@ -457,6 +460,29 @@ function update(dt){
   if(!hidden){
     const tTop=tierNow();
     if(tTop>tierShown){ tierShown=tTop; bannerT=2.0; cw=cupCwNormal(); }   // 屏幕正中提示 2 秒
+  }
+
+  // 特殊掉落物槽位：布丁 / 石头 / 永久冻结物 同一时间只存在一个
+  // 场上没有特殊物时，随机等 3~5 秒再补下一个（布丁、石头轮流；永久冻结物由暴风雪产出）
+  if(!hidden){
+    let hasSpecial=false;
+    for(let i=0;i<pearls.length;i++){
+      const q=pearls[i];
+      if(q.kind==='pudding'||q.kind==='stone'||q.fzTrap){ hasSpecial=true; break; }
+    }
+    if(!hasSpecial){
+      specialCd-=dt;
+      if(specialCd<=0){
+        const canPud=(tierNow()>=1), canStone=(tierNow()>=5);
+        if(canPud||canStone){
+          const pick=(canPud&&canStone)?(specialLast==='pudding'?'stone':'pudding'):(canPud?'pudding':'stone');
+          const ok=(pick==='pudding')?spawnPearl('pudding'):spawnPearl('stone');
+          if(ok){ specialLast=pick; specialCd=3+Math.random()*2; }
+        }else{
+          specialCd=1;
+        }
+      }
+    }
   }
 
   // 速度：缓慢上升、早封顶（放松感）；第 5 档之后每档再加 5%（封顶 1.8 倍）
@@ -474,17 +500,30 @@ function update(dt){
     if(tDen>0) gap = Math.max(0.42, gap*Math.max(0.60, 1-0.18*tDen));
   }
 
-  // 风
-  if(tierNow()>=2 && !hidden){
-    if(windT>0){ windT-=dt; if(windT<=0) windCd=9+Math.random()*5; }
-    else if(windWarn>0){ windWarn-=dt; if(windWarn<=0) startGust(); }
-    else { windCd-=dt; if(windCd<=0) windWarn=0.7; }
+  // ===== 天气：横风 / 暴风雪 轮流来，一次只来一个，结束后 3~5 秒再来下一个 =====
+  if(!hidden){
+    const busyWind = (windWarn>0 || windT>0);
+    const busyBliz = (fogT>0 || blizHold>0);
+    if(!busyWind && !busyBliz){
+      wxGap-=dt;
+      if(wxGap<=0){
+        const canW=tierNow()>=2, canB=tierNow()>=3;
+        if(canW||canB){
+          const pick=(canW&&canB)?(wxLast==='wind'?'blizzard':'wind'):(canW?'wind':'blizzard');
+          if(pick==='wind') windWarn=0.7; else fogT=1.0;
+          wxLast=pick; wxGap=3+Math.random()*2;
+        }else{
+          wxGap=1;
+        }
+      }
+    }
   }
-  // 暴风雪
-  if(tierNow()>=3 && !hidden){
-    if(fogT>0){ fogT-=dt; if(fogT<=0) freezeSome(); }
-    else { blizCd-=dt; if(blizCd<=0){ fogT=1.0; blizCd=26+Math.random()*12; } }
-  }
+  // 横风推进：0.7 秒预警 → 3 秒风
+  if(windT>0) windT-=dt;
+  else if(windWarn>0){ windWarn-=dt; if(windWarn<=0) startGust(); }
+  // 暴风雪推进：1 秒白雾 → 冻结 → 再算 2.2 秒结束
+  if(fogT>0){ fogT-=dt; if(fogT<=0){ freezeSome(); blizHold=2.2; } }
+  else if(blizHold>0) blizHold-=dt;
 
   // 杯子（打滑：跟手带惯性；被冰块冻住时完全不动）
   if(cupLockT>0){
@@ -584,6 +623,12 @@ function update(dt){
     const aligned=inZone&&Math.abs(p.x-cupX)<cw*CFG.catchW+p.r*CFG.catchR;
     // 布丁回弹上升期间不判定接住，等它落回来再算
     if(aligned && !(p.kind==='pudding'&&p.up)){
+      // 永久冻结物（也包括被暴风雪转化过来的布丁/石头）：接了冻杯 1 秒、不加分
+      if(p.fzTrap){
+        cupLockT=1; shake=10; sfxMiss(); toast('❄ Ly đóng băng 1s!');
+        pearls.splice(i,1);
+        continue;
+      }
       if(p.kind==='stone'){
         hp--; shake=14; sfxMiss(); toast('✖ ĐÁ! -1 ❤');
         pearls.splice(i,1);
@@ -592,12 +637,6 @@ function update(dt){
       }
       // 冰块：不加分，把杯子冻住 1 秒（惩罚性）
       if(p.kind==='ice'){
-        cupLockT=1; shake=10; sfxMiss(); toast('❄ Ly đóng băng 1s!');
-        pearls.splice(i,1);
-        continue;
-      }
-      // 永久冻结物：接了就把杯子冻住 1 秒、不加分（代替单独冰块的作用）
-      if(p.fzTrap){
         cupLockT=1; shake=10; sfxMiss(); toast('❄ Ly đóng băng 1s!');
         pearls.splice(i,1);
         continue;
@@ -686,18 +725,28 @@ function startGust(){
   });
 }
 function freezeSome(){
-  // 白雾结束后：随机挑「最多 1/3 的场上物品」原地冻 2 秒
   if(!pearls.length) return;
+  // 场上已有特殊物（布丁/石头）→ 直接把它变成永久冻结物
+  let trapSet=false;
+  for(let i=0;i<pearls.length;i++){
+    const q=pearls[i];
+    if(q.kind==='pudding'||q.kind==='stone'||q.fzTrap){
+      q.fzTrap=true; q.up=false; q.bounced=false; q.vx=0;
+      if(!q.fz) q.fz=0.001;
+      trapSet=true;
+      break;
+    }
+  }
+  // 再随机冻住最多 1/3 的场上物品
   const n=Math.min(pearls.length, Math.max(1, Math.floor(pearls.length/3)));
   const idx=[];
   for(let i=0;i<pearls.length;i++) idx.push(i);
   for(let i=idx.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=idx[i];idx[i]=idx[j];idx[j]=t; }
-  let trapSet=false;
   for(let i=0;i<n;i++){
     const q=pearls[idx[i]];
     if(!q.fz) q.fz=0.001;
-    // 其中一个永远不会解冻 → 惩罚物（石头不选，它自己已经是惩罚物）
-    if(!trapSet && q.kind!=='stone'){ q.fzTrap=true; trapSet=true; }
+    // 没有现成的特殊物时，从冻结的这批里挑 1 个（石头/布丁除外）
+    if(!trapSet && q.kind!=='stone' && q.kind!=='pudding'){ q.fzTrap=true; trapSet=true; }
   }
 }
 function startDying(){
@@ -1010,7 +1059,7 @@ function drawWindFx(){
   if(fogT<=0) return;
   // 暴风雪：整屏白雾 1 秒，正弦淡入淡出（0 → 0.92 → 0），遮住整个屏幕
   const phase=1-fogT;
-  const a=Math.sin(Math.PI*phase)*0.92;
+  const a=Math.pow(Math.max(0,Math.sin(Math.PI*phase)),0.6)*0.95;   // 中间段保持接近全白，像浓雾
   ctx.save();
   ctx.fillStyle='rgba(255,255,255,'+a.toFixed(3)+')';
   ctx.fillRect(0,0,W,H);
@@ -1371,7 +1420,12 @@ function drawPearlRaw(p){
   ctx.fillStyle='rgba(255,255,255,.85)';ctx.fill();
 }
 
-function drawPearl(p){ drawPearlRaw(p); if(p.fz || p.fzTrap) drawIceShell(p); }
+function drawPearl(p){
+  const frozen = p.fz || p.fzTrap;
+  if(frozen) drawIceBack(p);      // 先垫冰壳
+  drawPearlRaw(p);                // 物品本体（清楚可见）
+  if(frozen) drawIceFront(p);     // 再盖一层霜面/裂纹
+}
 function drawHud(){
   ctx.save();
   const hudY=Math.min(H*0.16,132);
@@ -1430,7 +1484,13 @@ function draw(){
 let last=0;
 function loop(ts){
   const dt=Math.min(0.034,(ts-last)/1000||0);last=ts;
-  update(dt);draw();requestAnimationFrame(loop);
+  try{
+    update(dt); draw();
+  }catch(e){
+    // 任何一处报错都不让整个游戏卡死（画面上限一帧可能异常，但循环继续）
+    console.error('loop error:', e);
+  }
+  requestAnimationFrame(loop);
 }
 
 
