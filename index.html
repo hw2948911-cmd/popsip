@@ -271,6 +271,7 @@ function tierNow(){ return Math.floor(time/TIER_SEC); }
 const BOUNCE_V=115;   // 果冻回弹与回弹后下落的速度：等于游戏刚开始时的下落速度
 const HIDDEN_SEC=15.04; // 隐藏关时长：对齐 Jingle Bells 一整轮（64 拍 × 0.235 秒）
 const ICE_SPLIT=false;  // 冰块分裂开关（暂时关闭，改 true 恢复）
+const ICE_SPAWN=false;  // 单独的冰块是否出现（false = 由暴风雪产出的「永久冻结物」代替它的惩罚作用）
 let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0, tierShown=0;
 let windCd=9, windT=0, windWarn=0, windDir=1, blizCd=26, fogT=0;
 const FRUIT_TIERS=[
@@ -281,6 +282,20 @@ const FRUIT_TIERS=[
 const FRUIT_EMOJI={grape:'\uD83C\uDF47',mango:'\uD83E\uDD6D',avocado:'\uD83E\uDD51',
   guava:'\uD83C\uDF50',pineapple:'\uD83C\uDF4D',passion:'\uD83C\uDF4B',
   butterfly:'\uD83C\uDF38',starfruit:'\u2B50',dragon:'\uD83C\uDF49'};
+// 预热 emoji：先把所有水果图标在离屏画布上画一遍，逼字体完成栅格化，
+// 否则第一次出现的 emoji 可能被浏览器画成半透明/模糊的「虚影」
+(function(){
+  try{
+    const c=document.createElement('canvas'); c.width=c.height=64;
+    const g=c.getContext('2d');
+    g.textAlign='center'; g.textBaseline='middle';
+    for(const sz of [24,32,40]){
+      g.font=sz+'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+      for(const k in FRUIT_EMOJI) g.fillText(FRUIT_EMOJI[k],32,32);
+      g.fillText('\u2744',32,32);
+    }
+  }catch(e){}
+})();
 function fruitPts(kind){
   for(let t=0;t<3;t++) for(const f of FRUIT_TIERS[t]) if(f[0]===kind) return t+3;
   return 0;
@@ -305,12 +320,12 @@ function rollKind(){
   const fr=unlockedFruits();
   const stoneOn = tierNow()>=5;
   if(stoneOn && Math.random()<0.08) return 'stone';
-  if(tierNow()>=1 && countOnScreen('ice')<2 && Math.random()<0.06) return 'ice';
+  if(ICE_SPAWN && tierNow()>=3 && countOnScreen('ice')<1 && Math.random()<0.03) return 'ice';   // 冰块：第 3 档起出现（当前由暴风雪永久冻结物代替）
   const frChance = Math.min(0.36, fr.length*0.09);   // 防同款后种类变多，水果率压低一点防止分数暴涨
   if(fr.length && Math.random()<frChance) return fr[Math.floor(Math.random()*fr.length)];
   const r=Math.random();
-  if(r<0.06){                                   // 布丁：概率降到 6%，同屏最多 2 个
-    if(countOnScreen('pudding')>=2) return 'nata';   // 场上已有 2 个布丁，就改出椰果
+  if(r<0.06){                                   // 布丁：第 1 档（30 秒）起出现，同屏最多 1 个
+    if(tierNow()<1 || countOnScreen('pudding')>=1) return 'nata';   // 还没解锁 / 场上已有 1 个，就改出椰果
     return 'pudding';
   }
   if(r<0.26) return 'nata';      // 椰果：1 分，开局就有，增加种类
@@ -340,7 +355,7 @@ function pickKind(){
 function itemPts(kind){
   if(hidden) return hiddenPts;
   if(kind==='stone') return 0;
-  if(kind==='ice') return 1;
+  if(kind==='ice') return 0;     // 冰块不加分，接住只冻杯子 1 秒
   if(kind==='pudding') return 2;
   if(kind==='white'||kind==='pearl'||kind==='nata') return 1;
   const f=fruitPts(kind); if(f) return f;
@@ -370,7 +385,7 @@ function reset(){
   score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;pairUsed=false;cw=cupW;
   lastSpawnKind='';lastKindRun=0;
   hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; tierShown=0; windT=0; windWarn=0; windCd=8+Math.random()*4; blizCd=24+Math.random()*8; fogT=0;
-  cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupV=0;keyCtrlT=0;
+  cupX=W/2;cupY=H-cupH-52;cupTarget=cupX;cupV=0;keyCtrlT=0;cupLockT=0;
   for(let i=0;i<3;i++){
     const k=pickKind();
     pearls.push({x:40+Math.random()*(W-80),y:H*(0.20+i*0.13)+(Math.random()*34-17),
@@ -471,19 +486,24 @@ function update(dt){
     else { blizCd-=dt; if(blizCd<=0){ fogT=1.0; blizCd=26+Math.random()*12; } }
   }
 
-  // 杯子（打滑：跟手带惯性，松手后会滑一小段才停）
-  const dxc=cupTarget-cupX;
-  if(dragging || keyCtrlT>0){
-    const want=Math.max(-CFG.cupSpeed, Math.min(CFG.cupSpeed, dxc*CFG.cupGain));
-    cupV += (want-cupV)*Math.min(1, dt*14);
+  // 杯子（打滑：跟手带惯性；被冰块冻住时完全不动）
+  if(cupLockT>0){
+    cupLockT=Math.max(0,cupLockT-dt);
+    cupV=0;
   }else{
-    cupV *= Math.exp(-dt*CFG.cupFriction);     // 松手后只剩摩擦
-    if(Math.abs(cupV)<6) cupV=0;
+    const dxc=cupTarget-cupX;
+    if(dragging || keyCtrlT>0){
+      const want=Math.max(-CFG.cupSpeed, Math.min(CFG.cupSpeed, dxc*CFG.cupGain));
+      cupV += (want-cupV)*Math.min(1, dt*14);
+    }else{
+      cupV *= Math.exp(-dt*CFG.cupFriction);     // 松手后只剩摩擦
+      if(Math.abs(cupV)<6) cupV=0;
+    }
+    cupX += cupV*dt;
+    const halfCup=cw/2;
+    if(cupX<halfCup){ cupX=halfCup; if(cupV<0) cupV=0; }
+    if(cupX>W-halfCup){ cupX=W-halfCup; if(cupV>0) cupV=0; }
   }
-  cupX += cupV*dt;
-  const halfCup=cw/2;
-  if(cupX<halfCup){ cupX=halfCup; if(cupV<0) cupV=0; }
-  if(cupX>W-halfCup){ cupX=W-halfCup; if(cupV>0) cupV=0; }
   if(keyCtrlT>0) keyCtrlT=Math.max(0,keyCtrlT-dt);
   for(let bi=bursts.length-1;bi>=0;bi--){ bursts[bi].t+=dt; if(bursts[bi].t>0.5)bursts.splice(bi,1); }
 
@@ -497,10 +517,9 @@ function update(dt){
     const p=pearls[i];
     if(p.fz){
       p.fz+=dt;
-      if(p.fz>4) p.fz=0;
+      if(p.fz>2) p.fz=0;                          // 原地冻结 2 秒后恢复
     }
-    let sp=1;
-    if(p.fz){ sp = p.fz<2 ? 0 : (p.fz<4 ? 0.4 : 1); }
+    const sp = (p.fz || fogT>0) ? 0 : 1;          // 白雾遮挡期间所有物品都停住
     const vy=p.v*sp;
     if(p.up){
       p.y-=BOUNCE_V*sp*dt;                        // 回弹慢速，按开局速度往上飘
@@ -531,9 +550,11 @@ function update(dt){
       p.y+=vy*dt;
     }
 
-    // 横风：只推上 2/3
-    if(p.wdx && p.y<safeY && p.wt<0.7){
+    // 横风：只推上 2/3（冻结中的不动）；推到屏幕边缘就停住，不会被吹出屏幕
+    if(p.wdx && !p.fz && fogT<=0 && p.y<safeY && p.wt<0.7){
       p.x += p.wdx*dt/0.7; p.wt+=dt;
+      if(p.x<p.r) p.x=p.r;
+      if(p.x>W-p.r) p.x=W-p.r;
     }
     // 冰块分裂（暂时关闭：把 ICE_SPLIT 改回 true 就恢复）
     if(ICE_SPLIT && p.kind==='ice' && !p.split && p.y>Math.max(190,H*0.24)){
@@ -569,6 +590,18 @@ function update(dt){
         if(hp<=0){ startDying(); return; }
         continue;
       }
+      // 冰块：不加分，把杯子冻住 1 秒（惩罚性）
+      if(p.kind==='ice'){
+        cupLockT=1; shake=10; sfxMiss(); toast('❄ Ly đóng băng 1s!');
+        pearls.splice(i,1);
+        continue;
+      }
+      // 永久冻结物：接了就把杯子冻住 1 秒、不加分（代替单独冰块的作用）
+      if(p.fzTrap){
+        cupLockT=1; shake=10; sfxMiss(); toast('❄ Ly đóng băng 1s!');
+        pearls.splice(i,1);
+        continue;
+      }
       // 果冻弹跳：第一次碰到杯子不加分，先弹回上方；第二次接住才 +2
       if(p.kind==='pudding' && !p.bounced){
         const dir=Math.random()<0.5?-1:1;
@@ -592,7 +625,9 @@ function update(dt){
       continue;
     }
     if(p.y-p.r>H){
-      pearls.splice(i,1); shake=6; sfxMiss();
+      pearls.splice(i,1);
+      if(p.kind==='ice' || p.fzTrap) continue;     // 冰块 / 永久冻结物：漏接不扣心、不出声
+      shake=6; sfxMiss();
       hp--;
       if(hp<=0){ startDying(); return; }
     }
@@ -651,10 +686,19 @@ function startGust(){
   });
 }
 function freezeSome(){
-  pearls.forEach(function(q){
-    if(q.y>=H*2/3) return;
-    if(Math.random()<0.38) q.fz=0.001;
-  });
+  // 白雾结束后：随机挑「最多 1/3 的场上物品」原地冻 2 秒
+  if(!pearls.length) return;
+  const n=Math.min(pearls.length, Math.max(1, Math.floor(pearls.length/3)));
+  const idx=[];
+  for(let i=0;i<pearls.length;i++) idx.push(i);
+  for(let i=idx.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=idx[i];idx[i]=idx[j];idx[j]=t; }
+  let trapSet=false;
+  for(let i=0;i<n;i++){
+    const q=pearls[idx[i]];
+    if(!q.fz) q.fz=0.001;
+    // 其中一个永远不会解冻 → 惩罚物（石头不选，它自己已经是惩罚物）
+    if(!trapSet && q.kind!=='stone'){ q.fzTrap=true; trapSet=true; }
+  }
 }
 function startDying(){
   if(state!=='play') return;
@@ -766,11 +810,11 @@ function fruitColor(kind){
 }
 function drawFruit(p){
   ctx.save();
-  // 不加阴影：部分安卓机 emoji+shadow 会渲染成半透明的「虚影」
+  // 不加阴影；坐标取整，避免 emoji 画在半像素上发虚
   ctx.textAlign='center';ctx.textBaseline='middle';
   const size=Math.round(p.r*1.7);
   ctx.font=size+'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
-  ctx.fillText(FRUIT_EMOJI[p.kind]||'',p.x,p.y+1);
+  ctx.fillText(FRUIT_EMOJI[p.kind]||'',Math.round(p.x),Math.round(p.y)+1);
   ctx.restore();
 }
 function drawStone(p){
@@ -824,59 +868,119 @@ function drawNata(p){
   }
   ctx.restore();
 }
-function drawIceShell(p){
-  // 冻结（前 2 秒）：多块不规则冰碴堆叠，能看见里面
-  if(p.fz && p.fz<2){
-    ctx.save();
-    for(let k=0;k<4;k++){
-      const rr=p.r*(1.25+k*0.16);
-      const ang=k*0.9+p.r*0.13;
-      ctx.save();
-      ctx.translate(p.x,p.y);ctx.rotate(ang);
-      ctx.beginPath();
-      const n=5;
-      for(let v=0;v<n;v++){
-        const a=v*Math.PI*2/n;
-        const rad=rr*(0.78+((k+v)%3)*0.13);
-        ctx.lineTo(Math.cos(a)*rad, Math.sin(a)*rad);
-      }
-      ctx.closePath();
-      ctx.fillStyle='rgba(206,240,255,'+(0.13+k*0.03)+')';
-      ctx.fill();
-      ctx.strokeStyle='rgba(255,255,255,'+(0.85-k*0.06)+')';
-      ctx.lineWidth=2;ctx.stroke();
-      ctx.restore();
-    }
-    ctx.beginPath();ctx.arc(p.x-p.r*0.4,p.y-p.r*0.45,p.r*0.28,0,7);
-    ctx.fillStyle='rgba(255,255,255,.85)';ctx.fill();
-    ctx.restore();
-    return;
+function icePoly(p,pad){
+  const s=p.r*pad, rot=(p.x*7+p.y*13)%6.283;
+  const RA=[1.02,0.93,1.06,0.95,1.00,0.90,1.03,0.94,1.05,0.92,0.99,0.96];
+  ctx.beginPath();
+  for(let i=0;i<12;i++){
+    const a=i/12*Math.PI*2+rot;
+    const rr=s*RA[i];
+    const px=p.x+Math.cos(a)*rr, py=p.y+Math.sin(a)*rr;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
   }
-  // 减速下落（2~4 秒）：不叠任何颜色，保持原图（结束后自然恢复正常）
+  ctx.closePath();
+}
+function drawIceBack(p){
+  // 冰壳底：实心淡蓝不规则冰块，垫在物品下面
+  const x=p.x, y=p.y, s=p.r*1.62;
+  ctx.save();
+  icePoly(p,1.62);
+  const g=ctx.createLinearGradient(x-s,y-s,x+s,y+s);
+  g.addColorStop(0,'#F2FBFF');
+  g.addColorStop(0.5,'#CBEAF9');
+  g.addColorStop(1,'#A4D6EE');
+  ctx.fillStyle=g;ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.98)';ctx.lineWidth=2.2;ctx.stroke();
+  // 内层切面
+  ctx.save();
+  ctx.translate(x,y);ctx.rotate((x*7+y*13)%6.283);
+  ctx.beginPath();
+  for(let i=0;i<6;i++){
+    const a=i/6*Math.PI*2+0.7;
+    const px=Math.cos(a)*s*0.62, py=Math.sin(a)*s*0.62;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=1.2;ctx.stroke();
+  ctx.restore();
+  ctx.restore();
+}
+function drawIceFront(p){
+  // 冰壳前层：一层很淡的霜 + 裂纹 + 星光；永久冻结物再加闪烁的红色感叹号
+  const x=p.x, y=p.y, s=p.r*1.62;
+  ctx.save();
+  icePoly(p,1.62);
+  ctx.fillStyle='rgba(226,246,255,.16)';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.62)';ctx.lineWidth=1.3;
+  ctx.beginPath();
+  ctx.moveTo(x-s*0.80,y-s*0.34);ctx.lineTo(x-s*0.50,y-s*0.08);ctx.lineTo(x-s*0.66,y+s*0.22);
+  ctx.moveTo(x+s*0.34,y-s*0.78);ctx.lineTo(x+s*0.42,y-s*0.40);ctx.lineTo(x+s*0.78,y-s*0.16);
+  ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.92)';ctx.lineWidth=1.6;
+  const sx=x-s*0.52, sy=y-s*0.52, sl=s*0.20;
+  ctx.beginPath();
+  ctx.moveTo(sx-sl,sy);ctx.lineTo(sx+sl,sy);
+  ctx.moveTo(sx,sy-sl);ctx.lineTo(sx,sy+sl);
+  ctx.stroke();
+  if(p.fzTrap){
+    const blink=0.5+0.5*Math.abs(Math.sin(time*5.5));
+    const br=Math.max(7,p.r*0.52)*(0.94+0.10*blink);
+    const bx=x+p.r*1.02, by=y-p.r*1.02;
+    ctx.save();
+    ctx.globalAlpha=0.35+0.65*blink;
+    ctx.beginPath();ctx.arc(bx,by,br,0,7);
+    ctx.fillStyle='rgba(226,32,54,.98)';ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.95)';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.font='900 '+Math.round(br*1.35)+'px -apple-system,Roboto,sans-serif';
+    ctx.fillStyle='#FFFFFF';
+    ctx.fillText('!',bx,by+0.5);
+    ctx.restore();
+  }
+  ctx.restore();
 }
 
 function drawIceBlock(p){
+  // 不规则冰块：12 边不规则多边形 + 半透明淡蓝 + 内部切面/裂纹 + 星光
+  const x=p.x, y=p.y, s=p.r;
+  const RA=[1.02,0.93,1.06,0.95,1.00,0.90,1.03,0.94,1.05,0.92,0.99,0.96];
   ctx.save();
   ctx.beginPath();
-  const n=6;
-  for(let v=0;v<n;v++){
-    const a=v*Math.PI*2/n+0.3;
-    const rad=p.r*(1.02+((v*37)%5)*0.07);
-    ctx.lineTo(p.x+Math.cos(a)*rad, p.y+Math.sin(a)*rad);
+  for(let i=0;i<12;i++){
+    const a=i/12*Math.PI*2+0.3;
+    const rr=s*RA[i];
+    const px=x+Math.cos(a)*rr, py=y+Math.sin(a)*rr;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
   }
   ctx.closePath();
-  const g=ctx.createLinearGradient(p.x-p.r,p.y-p.r,p.x+p.r,p.y+p.r);
-  g.addColorStop(0,'rgba(250,253,255,1)');
-  g.addColorStop(0.45,'rgba(196,232,252,.95)');
-  g.addColorStop(1,'rgba(126,190,232,.96)');
+  const g=ctx.createLinearGradient(x-s,y-s,x+s,y+s);
+  g.addColorStop(0,'rgba(240,251,255,.97)');
+  g.addColorStop(0.5,'rgba(190,230,250,.95)');
+  g.addColorStop(1,'rgba(148,204,240,.95)');
   ctx.fillStyle=g;ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,1)';ctx.lineWidth=2.5;ctx.stroke();
-  // 裂纹
+  ctx.strokeStyle='rgba(255,255,255,.95)';ctx.lineWidth=2;ctx.stroke();
+  // 内层切面
   ctx.beginPath();
-  ctx.moveTo(p.x-p.r*0.4,p.y-p.r*0.5);
-  ctx.lineTo(p.x+p.r*0.05,p.y+p.r*0.1);
-  ctx.lineTo(p.x-p.r*0.2,p.y+p.r*0.55);
-  ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=1.6;ctx.stroke();
+  for(let i=0;i<6;i++){
+    const a=i/6*Math.PI*2+0.9;
+    const px=x+Math.cos(a)*s*0.58, py=y+Math.sin(a)*s*0.58;
+    if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  ctx.strokeStyle='rgba(255,255,255,.45)';ctx.lineWidth=1.2;ctx.stroke();
+  // 裂纹
+  ctx.strokeStyle='rgba(255,255,255,.75)';ctx.lineWidth=1.3;
+  ctx.beginPath();
+  ctx.moveTo(x-s*0.55,y-s*0.45);ctx.lineTo(x-s*0.15,y-s*0.10);ctx.lineTo(x-s*0.35,y+s*0.35);
+  ctx.moveTo(x+s*0.10,y-s*0.60);ctx.lineTo(x+s*0.20,y-s*0.15);ctx.lineTo(x+s*0.55,y+s*0.05);
+  ctx.stroke();
+  // 星光
+  ctx.strokeStyle='rgba(255,255,255,.95)';ctx.lineWidth=1.6;
+  const sx=x-s*0.35, sy=y-s*0.38, sl=s*0.26;
+  ctx.beginPath();
+  ctx.moveTo(sx-sl,sy);ctx.lineTo(sx+sl,sy);
+  ctx.moveTo(sx,sy-sl);ctx.lineTo(sx,sy+sl);
+  ctx.stroke();
   ctx.restore();
 }
 function drawWindFx(){
@@ -904,58 +1008,12 @@ function drawWindFx(){
   ctx.restore();
 }function drawFogFx(){
   if(fogT<=0) return;
-  const k=Math.min(1, fogT/0.25);
-  const cover=H*0.74;
+  // 暴风雪：整屏白雾 1 秒，正弦淡入淡出（0 → 0.92 → 0），遮住整个屏幕
+  const phase=1-fogT;
+  const a=Math.sin(Math.PI*phase)*0.92;
   ctx.save();
-  const g=ctx.createLinearGradient(0,0,0,cover);
-  g.addColorStop(0,'rgba(255,255,255,'+(0.97*k)+')');
-  g.addColorStop(0.55,'rgba(255,255,255,'+(0.80*k)+')');
-  g.addColorStop(1,'rgba(255,255,255,0)');
-  ctx.fillStyle=g;
-  ctx.fillRect(0,0,W,cover);
-  // 浓雾团
-  for(let i=0;i<5;i++){
-    const cx=(i*173+time*22)%W;
-    const cy=H*0.10+(i%3)*H*0.17;
-    const rr=W*(0.26+ (i%3)*0.09);
-    const rg=ctx.createRadialGradient(cx,cy,rr*0.15,cx,cy,rr);
-    rg.addColorStop(0,'rgba(255,255,255,'+(0.55*k)+')');
-    rg.addColorStop(1,'rgba(255,255,255,0)');
-    ctx.fillStyle=rg;
-    ctx.beginPath();ctx.arc(cx,cy,rr,0,7);ctx.fill();
-  }
-  // 风的弧形线（下弧）
-  for(let i=0;i<4;i++){
-    const phase=(time*0.35+i*0.31)%1;
-    const y0=H*0.05+(i/4)*H*0.55+phase*H*0.08;
-    const x0=-W*0.4+phase*W*1.3;
-    const len=W*0.75;
-    const lg=ctx.createLinearGradient(x0,0,x0+len,0);
-    lg.addColorStop(0,'rgba(235,248,255,0)');
-    lg.addColorStop(0.5,'rgba(235,248,255,'+(0.45*k)+')');
-    lg.addColorStop(1,'rgba(235,248,255,0)');
-    ctx.beginPath();ctx.moveTo(x0,y0);
-    ctx.quadraticCurveTo(x0+len*0.5,y0+30,x0+len,y0+8);
-    ctx.strokeStyle=lg;ctx.lineWidth=5;ctx.stroke();
-  }
-  // 雪花
-  const t=time*1.6;
-  for(let i=0;i<46;i++){
-    const seed=i*97.13;
-    const yy=((seed%cover)+t*(22+(i%5)*9))%cover;
-    const xx=(seed*1.7+(Math.sin(t*0.6+i)*18))%W;
-    const fade=Math.max(0,1-yy/cover);
-    const rr2=1.4+(i%4)*0.9;
-    ctx.globalAlpha=(0.25+0.65*fade)*k;
-    ctx.fillStyle='#ffffff';
-    ctx.beginPath();ctx.arc(xx,yy,rr2,0,7);ctx.fill();
-    if(i%3===0){
-      ctx.strokeStyle='#ffffff';ctx.lineWidth=1;
-      ctx.beginPath();ctx.moveTo(xx-rr2*2.2,yy);ctx.lineTo(xx+rr2*2.2,yy);
-      ctx.moveTo(xx,yy-rr2*2.2);ctx.lineTo(xx,yy+rr2*2.2);ctx.stroke();
-    }
-  }
-  ctx.globalAlpha=1;
+  ctx.fillStyle='rgba(255,255,255,'+a.toFixed(3)+')';
+  ctx.fillRect(0,0,W,H);
   ctx.restore();
 }
 
@@ -1065,6 +1123,13 @@ function drawCup(){
   ctx.fillStyle=PINK;ctx.textAlign='center';ctx.textBaseline='middle';
   ctx.font='italic bold '+Math.round(cw*0.225)+'px Georgia,serif';
   ctx.fillText('PopSip',0,cupH*0.46);
+  if(cupLockT>0){
+    // 被冰块冻住：杯身覆一层淡蓝 + ❄
+    p();ctx.fillStyle='rgba(138,206,246,.58)';ctx.fill();
+    ctx.fillStyle='#1E5C86';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.font='800 '+Math.round(cw*0.32)+'px -apple-system,Roboto,sans-serif';
+    ctx.fillText('\u2744',0,cupH*0.58);
+  }
   ctx.restore();
 }
 
@@ -1306,7 +1371,7 @@ function drawPearlRaw(p){
   ctx.fillStyle='rgba(255,255,255,.85)';ctx.fill();
 }
 
-function drawPearl(p){ drawPearlRaw(p); if(p.fz) drawIceShell(p); }
+function drawPearl(p){ drawPearlRaw(p); if(p.fz || p.fzTrap) drawIceShell(p); }
 function drawHud(){
   ctx.save();
   const hudY=Math.min(H*0.16,132);
@@ -1323,6 +1388,8 @@ function drawHud(){
 }
 
 function draw(){
+  // 每帧开头强制复位画布状态，防止任何一处漏掉 restore 造成「莫名变虚」
+  ctx.globalAlpha=1; ctx.shadowBlur=0; ctx.shadowColor='rgba(0,0,0,0)'; ctx.filter='none';
   drawBackground();
 
   if(bannerT>0){
@@ -1629,6 +1696,7 @@ function gameOver(){
 let dragging=false;
 let cupTarget=0;
 let cupV=0;          // 杯子当前横向速度（打滑用）
+let cupLockT=0;      // 被冰块冻住的剩余秒数（>0 时杯子不能动）
 let keyCtrlT=0;      // 键盘操作的短暂控制窗口
 function moveTo(x){cupTarget=Math.max(cw/2+6,Math.min(W-cw/2-6,x));}
 cv.addEventListener('pointerdown',e=>{dragging=true;moveTo(e.clientX);});
