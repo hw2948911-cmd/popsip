@@ -309,7 +309,10 @@ function rollKind(){
   const frChance = Math.min(0.36, fr.length*0.09);   // 防同款后种类变多，水果率压低一点防止分数暴涨
   if(fr.length && Math.random()<frChance) return fr[Math.floor(Math.random()*fr.length)];
   const r=Math.random();
-  if(r<0.12) return 'pudding';
+  if(r<0.06){                                   // 布丁：概率降到 6%，同屏最多 2 个
+    if(countOnScreen('pudding')>=2) return 'nata';   // 场上已有 2 个布丁，就改出椰果
+    return 'pudding';
+  }
   if(r<0.26) return 'nata';      // 椰果：1 分，开局就有，增加种类
   if(r<0.44) return 'white';
   return 'pearl';
@@ -391,8 +394,23 @@ function spawnPearl(){
   }
   px=Math.max(26,Math.min(W-26,px));
   const baseV=95+Math.min(220,time*1.15)+Math.random()*30;
-  pearls.push({x:px,y:-24,r:rad,kind:kind,pts:pts,fruit:fruitPts(kind)>0,
-    v:Math.min(hidden?560:520, baseV*rush)});
+  let v=Math.min(hidden?560:520, baseV*rush);
+  // 错峰：别让新掉落物跟场上某颗「几乎同时到杯口」——横向又拉得开的话必然要漏一个
+  for(let tries=0;tries<3;tries++){
+    const tNew=(cupY+24)/v;
+    let clash=false;
+    for(let i=0;i<pearls.length;i++){
+      const q=pearls[i];
+      if(q.up || q.y>=cupY) continue;              // 上升中 / 已经过了杯口
+      if(Math.abs(q.x-px) < cw*0.9) continue;      // 横向够近，能顺手一网打尽
+      const qv = q.bounced ? BOUNCE_V*(q.spd||1) : q.v;       // 回弹后的布丁按它自己的落速算
+      const tq = (cupY-q.y)/Math.max(60,qv);
+      if(Math.abs(tq-tNew) < 0.35){ clash=true; break; }
+    }
+    if(!clash) break;
+    v = Math.max(90, Math.min(hidden?560:520, v*(Math.random()<0.5?0.72:1.32)));
+  }
+  pearls.push({x:px,y:-24,r:rad,kind:kind,pts:pts,fruit:fruitPts(kind)>0, v:v});
   return true;
 }
 
@@ -486,9 +504,29 @@ function update(dt){
     const vy=p.v*sp;
     if(p.up){
       p.y-=BOUNCE_V*sp*dt;                        // 回弹慢速，按开局速度往上飘
-      if(p.y<H*0.48){ p.up=false; p.bounced=true; }   // 弹起高度约为上一版的 2 倍（杯口往上约 270px）
+      if(p.y<H*0.48){
+        p.up=false; p.bounced=true;
+        // 落下来之前挑一个「不跟别人同时到杯口」的速度（±16~20%）
+        let bestF=1, bestGap=-1;
+        const cands=[0.84,0.92,1,1.1,1.2];
+        for(let fi=0;fi<cands.length;fi++){
+          const f=cands[fi];
+          const tp=(cupY-p.y)/(BOUNCE_V*f);
+          let minGap=99;
+          for(let qi=0;qi<pearls.length;qi++){
+            const q=pearls[qi];
+            if(q===p||q.up||q.y>=cupY) continue;
+            if(Math.abs(q.x-p.x)<cw*0.9) continue;
+            const qv=q.bounced?BOUNCE_V*(q.spd||1):q.v;
+            const tq=(cupY-q.y)/Math.max(60,qv);
+            minGap=Math.min(minGap,Math.abs(tq-tp));
+          }
+          if(minGap>bestGap){ bestGap=minGap; bestF=f; }
+        }
+        p.spd=bestF;
+      }
     }else if(p.bounced){
-      p.y+=BOUNCE_V*sp*dt;                        // 回弹之后的下落也按开局速度，慢慢落
+      p.y+=BOUNCE_V*(p.spd||1)*sp*dt;             // 回落速度会自己避让其他掉落物
     }else{
       p.y+=vy*dt;
     }
