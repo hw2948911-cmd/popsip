@@ -266,7 +266,7 @@ let cw=cupW;                 // 当前杯口宽度（隐藏关变窄）
 
 let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=0,spawnCount=0;
 /* ===== 无尽模式状态 ===== */
-const HP_MAX=10, HIDDEN_AT=500;   // 隐藏关：整局只在累计 500 分时出现一次
+const HP_MAX=10, HIDDEN_AT=300;   // 隐藏关：整局只在累计 300 分时出现一次
 const TIER_SEC=30;                // 难度：每 30 秒升一档（按时间，不按分数）
 function tierNow(){ return Math.floor(time/TIER_SEC); }
 const BOUNCE_V=115;   // 果冻回弹与回弹后下落的速度：等于游戏刚开始时的下落速度
