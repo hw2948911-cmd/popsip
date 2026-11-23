@@ -268,12 +268,12 @@ let state='start',score=0,level=1,pearls=[],spawnT=0,shake=0,playerName='',time=
 /* ===== 无尽模式状态 ===== */
 const HP_MAX=10, HIDDEN_AT=300;   // 隐藏关：整局只在累计 300 分时出现一次
 const TIER_SEC=30;                // 难度：每 30 秒升一档（按时间，不按分数）
-function tierNow(){ return Math.floor(time/TIER_SEC); }
+function tierNow(){ return Math.floor(diffT/TIER_SEC); }
 const BOUNCE_V=115;   // 果冻回弹与回弹后下落的速度：等于游戏刚开始时的下落速度
 const HIDDEN_SEC=15.04; // 隐藏关时长：对齐 Jingle Bells 一整轮（64 拍 × 0.235 秒）
 const ICE_SPLIT=false;  // 冰块分裂开关（暂时关闭，改 true 恢复）
 const ICE_SPAWN=false;  // 单独的冰块是否出现（false = 由暴风雪产出的「永久冻结物」代替它的惩罚作用）
-let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0, tierShown=0;
+let hp=10, hiddenCount=0, hiddenT=0, hiddenPts=4, dyingT=0, tierShown=0, diffT=0;
 let specialCd=4, specialLast='';
 let windT=0, windWarn=0, windDir=1, fogT=0, blizHold=0, wxGap=7, wxLast='';
 const FRUIT_TIERS=[
@@ -392,7 +392,7 @@ function resize(){
 }
 
 function reset(){
-  score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;pairUsed=false;cw=cupW;
+  score=0;level=1;pearls=[];spawnT=0;shake=0;time=0;diffT=0;spawnCount=0;hidden=false;misses=0;bannerT=0;combo=0;pairUsed=false;cw=cupW;
   lastSpawnKind='';lastKindRun=0;
   hp=HP_MAX; hiddenCount=0; sparks=[]; hiddenT=0; dyingT=0; tierShown=0;
   specialCd=3+Math.random()*2; specialLast='';
@@ -457,6 +457,7 @@ function update(dt){
   }
   if(state!=='play')return;
   time+=dt;
+  if(!hidden) diffT+=dt;      // 难度计时：隐藏关期间暂停（隐藏关不算进 30 秒升档）
   updateWater(dt);
   if(bannerT>0)bannerT=Math.max(0,bannerT-dt);
 
@@ -472,7 +473,7 @@ function update(dt){
     }
   }
 
-  // 难度按时间提升：每 30 秒升一档就提示一次，跟分数、隐藏关都无关
+  // 难度按时间提升：每 30 秒升一档就提示一次（跟分数无关；隐藏关期间暂停计时）
   if(!hidden){
     const tTop=tierNow();
     if(tTop>tierShown){ tierShown=tTop; bannerT=2.0; cw=cupCwNormal(); }   // 屏幕正中提示 2 秒
